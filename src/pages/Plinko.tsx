@@ -16,7 +16,7 @@ const PRIZES: PrizeId[] = [
 
 const PRIZE_META = {
   bonbons:   { emoji: "🍬", label: "Assiette de Bonbons",       color: "#d4af37",  glow: "rgba(212,175,55,0.6)"   },
-  barbapapa: { emoji: "🎫", label: "Jeton Machine à Cadeaux",  color: "#c8a8ff",  glow: "rgba(180,130,255,0.55)" },
+  barbapapa: { emoji: "🎫", label: "Goodies",  color: "#c8a8ff",  glow: "rgba(180,130,255,0.55)" },
   pochette:  { emoji: "🎁", label: "Pochette Surprise",          color: "#c41e3a",  glow: "rgba(196,30,58,0.6)"   },
 } as const;
 

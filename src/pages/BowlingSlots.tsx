@@ -8,7 +8,7 @@ type SymbolId = "boule" | "quille" | "strike";
 
 const PRIZES: Record<SymbolId, { name: string; emoji: string; color: string; glow: string }> = {
   boule:  { name: "Assiette de Bonbons",              emoji: "🍬", color: "#d4af37", glow: "rgba(212,175,55,0.5)"   },
-  quille: { name: "Jeton Machine à Cadeaux",           emoji: "🎫", color: "#c8deff", glow: "rgba(180,210,255,0.45)" },
+  quille: { name: "Goodies",           emoji: "🎫", color: "#c8deff", glow: "rgba(180,210,255,0.45)" },
   strike: { name: "Pochette Surprise",                emoji: "🎁", color: "#c41e3a", glow: "rgba(196,30,58,0.55)"   },
 };
 

@@ -157,7 +157,7 @@ export default function WinOverlay({ show, emoji, label, color, glow, onClose }:
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.42 }}
-              className="font-heading text-[#f5e6c8] mb-6"
+              className="font-heading text-[#f4f2fa] mb-6"
               style={{ fontWeight: 800, fontSize: "clamp(1.4rem, 5vw, 2rem)" }}
             >
               {label}
@@ -178,7 +178,7 @@ export default function WinOverlay({ show, emoji, label, color, glow, onClose }:
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.52 }}
               onClick={onClose}
-              className="btn-gold px-8 py-3 text-xs rounded-sm tracking-widest"
+              className="btn-gold px-8 py-3 text-xs rounded-lg tracking-widest"
             >
               Continuer
             </motion.button>

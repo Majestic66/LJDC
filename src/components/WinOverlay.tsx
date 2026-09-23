@@ -1,5 +1,7 @@
-import { useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useEffect, useRef, useId } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+
+import "../casino.css";
 
 interface Props {
   show: boolean;
@@ -18,11 +20,27 @@ const CONFETTI_COLORS = [
 ];
 
 export default function WinOverlay({ show, emoji, label, color, glow, onClose }: Props) {
+  const reducedMotion = useReducedMotion();
+  const titleId = useId();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!show) return;
+    const previous = document.activeElement as HTMLElement | null;
+    buttonRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); }
+      if (event.key === 'Tab') { event.preventDefault(); buttonRef.current?.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
+  }, [show]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number>(0);
 
   useEffect(() => {
-    if (!show) { cancelAnimationFrame(rafRef.current); return; }
+    if (!show || reducedMotion) { cancelAnimationFrame(rafRef.current); return; }
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -87,104 +105,21 @@ export default function WinOverlay({ show, emoji, label, color, glow, onClose }:
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
     };
-  }, [show]);
+  }, [show, reducedMotion]);
 
-  return (
-    <AnimatePresence>
-      {show && (
-        <motion.div
-          key="overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-100 flex items-center justify-center"
-          style={{ background: "rgba(7,9,18,0.82)" }}
-          onClick={onClose}
-        >
-          {/* Confetti canvas */}
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 pointer-events-none"
-          />
-
-          {/* Prize card */}
-          <motion.div
-            key="card"
-            initial={{ scale: 0.45, opacity: 0, y: 60 }}
-            animate={{ scale: 1,    opacity: 1, y: 0  }}
-            exit={{    scale: 0.7,  opacity: 0, y: 30 }}
-            transition={{ type: "spring", bounce: 0.48, duration: 0.55 }}
-            className="relative z-10 text-center px-10 py-10 rounded-2xl mx-4"
-            style={{
-              background: "linear-gradient(145deg, #12162a, #0b0e1e)",
-              border: `1.5px solid ${color}55`,
-              boxShadow: `0 0 80px ${glow}, 0 0 200px ${glow}, 0 28px 70px rgba(0,0,0,0.9)`,
-              maxWidth: 360,
-              width: "100%",
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Emoji — bounces + wiggles */}
-            <motion.div
-              initial={{ scale: 0, rotate: -20 }}
-              animate={{ scale: 1,  rotate: 0   }}
-              transition={{ type: "spring", bounce: 0.65, delay: 0.18 }}
-              className="leading-none mb-5"
-              style={{ fontSize: 96 }}
-            >
-              <motion.span
-                animate={{ rotate: [-6, 6, -6], scale: [1, 1.12, 1] }}
-                transition={{ duration: 0.7, repeat: 3, delay: 0.3 }}
-                style={{ display: "inline-block" }}
-              >
-                {emoji}
-              </motion.span>
-            </motion.div>
-
-            {/* Tag */}
-            <motion.p
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35 }}
-              className="font-heading text-[10px] tracking-[0.45em] uppercase mb-2"
-              style={{ color }}
-            >
-              ✨ Félicitations !
-            </motion.p>
-
-            {/* Prize name */}
-            <motion.p
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.42 }}
-              className="font-heading text-[#f5e6c8] mb-6"
-              style={{ fontWeight: 800, fontSize: "clamp(1.4rem, 5vw, 2rem)" }}
-            >
-              {label}
-            </motion.p>
-
-            {/* Divider */}
-            <div
-              className="mb-6"
-              style={{
-                height: 1,
-                background: `linear-gradient(90deg, transparent, ${color}70, transparent)`,
-              }}
-            />
-
-            {/* CTA */}
-            <motion.button
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.52 }}
-              onClick={onClose}
-              className="btn-gold px-8 py-3 text-xs rounded-sm tracking-widest"
-            >
-              Continuer
-            </motion.button>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+  return <AnimatePresence>{show && <motion.div key="overlay" className="lc-win-overlay"
+    initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:reducedMotion?0:.2}} onClick={onClose}>
+    {!reducedMotion && <canvas ref={canvasRef} className="lc-win-confetti" aria-hidden="true"/>}
+    <motion.div role="dialog" aria-modal="true" aria-labelledby={titleId} className="lc-win-card"
+      initial={reducedMotion?false:{opacity:0,y:25,rotateX:8,scale:.94}} animate={{opacity:1,y:0,rotateX:0,scale:1}}
+      exit={{opacity:0,y:reducedMotion?0:12}} transition={{type:'spring',stiffness:220,damping:24}}
+      style={{borderColor:color+'66',boxShadow:'0 35px 90px #000b, 0 0 60px '+glow.replace(/0\.\d+\)/,'0.12)')}}
+      onClick={e=>e.stopPropagation()}>
+      <div className="lc-win-suits" aria-hidden="true">♠ <span>♥</span> ♦ ♣</div>
+      <div className="lc-win-medal" style={{background:'radial-gradient(circle at 35% 25%, #fff4, '+color+'22 58%, #0004)'}} aria-hidden="true"><span>{emoji}</span></div>
+      <p className="lc-win-eyebrow">BIEN JOUÉ !</p><h2 id={titleId}>{label}</h2><p className="lc-win-message">La chance était de votre côté.</p>
+      <button ref={buttonRef} type="button" onClick={onClose}>Continuer à jouer <span aria-hidden="true">→</span></button>
+      <p className="lc-win-signature">LES JEUX DE CARLOS · GRAMONT</p>
+    </motion.div>
+  </motion.div>}</AnimatePresence>;
 }

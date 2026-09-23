@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useState, useRef, useEffect, FC } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Crown } from "lucide-react";
 import WinOverlay from "../components/WinOverlay";
@@ -33,7 +33,7 @@ function BowlingBall() {
     <div
       className="relative mx-auto"
       style={{ width: 62, height: 62, borderRadius: "50%",
-        background: "radial-gradient(circle at 33% 28%, #6b3510 0%, #2a0c00 60%, #140600 100%)",
+        background: "radial-gradient(circle at 33% 28%, #8980ff 0%, #3c258e 48%, #170c42 100%)",
         boxShadow: "inset -5px -5px 14px rgba(0,0,0,0.85), inset 3px 3px 8px rgba(255,140,60,0.08), 0 6px 22px rgba(0,0,0,0.6)",
       }}
     >
@@ -92,6 +92,23 @@ function SymbolDisplay({ id }: { id: SymbolId }) {
   if (id === "boule")  return <BowlingBall />;
   if (id === "quille") return <BowlingPin />;
   return <StrikeIcon />;
+}
+
+const SYMBOL_LABELS: Record<SymbolId, string> = { boule: 'Boule', quille: 'Quille', strike: 'Strike' };
+
+const Reel: FC<{ symbol: SymbolId; spinning: boolean; index: number }> = ({ symbol, spinning, index }) => {
+  const reducedMotion = useReducedMotion();
+  const position = ALL.indexOf(symbol);
+  const visible = [ALL[(position + 2) % 3], symbol, ALL[(position + 1) % 3]];
+  return <div className="bs-reel" data-running={spinning} role="img" aria-label={`Rouleau ${index + 1} : ${spinning ? 'en rotation' : SYMBOL_LABELS[symbol]}`}>
+    {spinning && !reducedMotion ? <div className="bs-strip" aria-hidden="true">
+      {[...ALL, ...ALL].map((id, j) => <div className="bs-symbol" key={j}><div className="bs-symbol-art"><SymbolDisplay id={id} /></div></div>)}
+    </div> : <motion.div className="bs-rest" key={spinning ? 'spin' : 'stop'} aria-hidden="true"
+      initial={reducedMotion ? false : { y: -18 }} animate={{ y: 0 }} transition={{ type: 'spring', stiffness: 330, damping: 22 }}>
+      {visible.map((id, j) => <div className="bs-symbol" key={j}><div className="bs-symbol-art"><SymbolDisplay id={id} /></div></div>)}
+    </motion.div>}
+    <div className="bs-reel-glass" aria-hidden="true" />
+  </div>;
 }
 
 /* ── Main Component ──────────────────────────────────── */
@@ -159,9 +176,15 @@ export default function BowlingSlots() {
   const isSpinning = phase === "spinning";
   const isWon = phase === "won";
 
-  return (
-    <div className="h-dvh bg-bowling text-white flex flex-col overflow-hidden">
+  // Clear animation timers when leaving the game; results and timings are unchanged.
+  useEffect(() => () => {
+    iids.current.forEach(clearInterval);
+    tids.current.forEach(clearTimeout);
+  }, []);
 
+  return (
+    <div className="bs-page">
+      <style>{SLOT_STYLES}</style>
       {/* Win overlay */}
       {winner && (
         <WinOverlay
@@ -174,336 +197,52 @@ export default function BowlingSlots() {
         />
       )}
 
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 border-b border-white/20 backdrop-blur-lg bg-white/15 flex justify-between items-center px-6 py-4 md:px-14">
-        <Link
-          to={isAdulte ? "/jeux/adultes" : "/jeux/enfants"}
-          className="font-heading flex items-center gap-3 text-white hover:text-yellow-200 transition-colors text-xs tracking-[0.25em] uppercase drop-shadow-md"
-        >
-          <ArrowLeft size={16} strokeWidth={2} />
-          Retour
-        </Link>
-        <div className="font-display text-xl text-white flex items-center gap-2 drop-shadow-md">
-          <Crown size={18} />
-          L.J.D.C
-        </div>
-      </nav>
 
-      <main className="flex-1 min-h-0 flex flex-col items-center overflow-hidden py-6 px-6">
-
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-1"
-        >
-          <div className="flex items-center justify-center gap-3 mb-1">
-            <div className="h-px w-10 bg-white/40" />
-            <span className="text-lg">🎳</span>
-            <div className="h-px w-10 bg-white/40" />
-          </div>
-          <h1
-            className="font-heading text-xl md:text-2xl text-white drop-shadow-lg"
-            style={{ fontWeight: 800, letterSpacing: "0.1em" }}
-          >
-            BOWLING SLOTS
-          </h1>
-          <p className="font-heading text-[10px] tracking-[0.45em] uppercase mt-1 text-yellow-200/80">
-            Gramont Casino
-          </p>
-        </motion.div>
-
-        {/* Stats bar */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="flex gap-8 mb-1 font-heading text-[10px] tracking-widest uppercase"
-        >
-          <span className="text-white/50">
-            Parties : <span className="text-white/90">{stats.spins}</span>
-          </span>
-          <span className="text-white/50">
-            Victoires : <span className="text-white/90">{stats.wins}</span>
-          </span>
-        </motion.div>
-
-        {/* Cabinet */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="flex-1 min-h-0 relative w-full max-w-none flex flex-col"
-        >
-          {/* Glow behind cabinet on win */}
-          <AnimatePresence>
-            {isWon && winner && (
-              <motion.div
-                key="cabinet-glow"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 rounded-xl pointer-events-none"
-                style={{
-                  boxShadow: `0 0 90px ${prizes[winner].glow}, 0 0 180px ${prizes[winner].glow}`,
-                  zIndex: -1,
-                }}
-              />
-            )}
-          </AnimatePresence>
-
-          <div
-            className="flex-1 min-h-0 rounded-xl overflow-hidden flex flex-col"
-            style={{
-              background: "linear-gradient(175deg, #12162a 0%, #0a0c18 100%)",
-              border: "1.5px solid rgba(212,175,55,0.35)",
-              boxShadow: "0 24px 70px rgba(0,0,0,0.85), inset 0 1px 0 rgba(212,175,55,0.12)",
-            }}
-          >
-            {/* Top decorative lights */}
-            <div
-              className="flex justify-between items-center px-8 py-1.5"
-              style={{
-                borderBottom: "1px solid rgba(212,175,55,0.18)",
-                background: "rgba(212,175,55,0.03)",
-              }}
-            >
-              {[...Array(9)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  style={{ width: 10, height: 10, borderRadius: "50%" }}
-                  animate={
-                    isSpinning
-                      ? {
-                          backgroundColor: ["#d4af37", "#c41e3a", "#d4af37"],
-                          boxShadow: [
-                            "0 0 6px rgba(212,175,55,0.7)",
-                            "0 0 6px rgba(196,30,58,0.7)",
-                            "0 0 6px rgba(212,175,55,0.7)",
-                          ],
-                        }
-                      : { backgroundColor: "#d4af37", boxShadow: "0 0 4px rgba(212,175,55,0.4)" }
-                  }
-                  transition={{
-                    duration: 0.35,
-                    repeat: isSpinning ? Infinity : 0,
-                    delay: i * 0.06,
-                  }}
-                />
-              ))}
+      <nav className="bs-nav"><Link to={isAdulte ? '/jeux/adultes' : '/jeux/enfants'}><ArrowLeft size={18} /> Retour aux jeux</Link><span><Crown size={19} /> L.J.D.C</span></nav>
+      <main className="bs-main">
+        <header className="bs-page-heading"><div><p>GRAMONT CASINO</p><h1>Bowling Slots</h1></div><span>Alignez 3 symboles identiques pour gagner.</span></header>
+        <section className="bs-stage" aria-label="Machine à sous à trois rouleaux">
+          <div className="bs-machine" data-phase={phase}>
+            <div className="bs-marquee">
+              <div className="bs-bulbs" aria-hidden="true">{Array.from({length:11},(_,i) => <i key={i} style={{animationDelay: `${i * 0.09}s`}} />)}</div>
+              <div className="bs-marquee-title"><span>★</span><div><small>LES JEUX DE CARLOS</small><strong>BOWLING <em>SLOTS</em></strong></div><span>★</span></div>
+              <div className="bs-marquee-rule">BOULE • QUILLE • STRIKE</div>
             </div>
-
-            {/* Machine name */}
-            <div className="text-center py-1">
-              <span className="font-heading text-[10px] tracking-[0.4em] uppercase text-amber-300/60">
-                BOWLING SLOTS GRAMONT
-              </span>
-            </div>
-
-            {/* Reels */}
-            <div className="flex-1 min-h-0 px-3 py-2">
-              <div className="grid grid-cols-3 gap-2" style={{ height: "100%" }}>
-                {reels.map((symbol, i) => (
-                  <div key={i} className="flex flex-col items-center gap-1" style={{ minHeight: 0 }}>
-                    {/* Reel label */}
-                    <span className="font-heading text-[9px] tracking-[0.28em] uppercase" style={{
-                      color: symbol === "boule" ? "#d4af37" : symbol === "quille" ? "#c8deff" : "#c41e3a",
-                      opacity: 0.5,
-                    }}>
-                      {symbol === "boule" ? "Boule" : symbol === "quille" ? "Quille" : "Strike"}
-                    </span>
-
-                    {/* Reel window */}
-                    <div
-                      style={{
-                        width: "100%", flex: "1 1 0", minHeight: 0,
-                        borderRadius: 8,
-                        background: "linear-gradient(160deg, #060810, #0b0e1c)",
-                        border: `1.5px solid ${running[i] ? "rgba(212,175,55,0.55)" : "rgba(212,175,55,0.2)"}`,
-                        boxShadow: running[i]
-                          ? "inset 0 0 20px rgba(212,175,55,0.07), 0 0 15px rgba(212,175,55,0.12)"
-                          : "inset 0 4px 16px rgba(0,0,0,0.65)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        position: "relative", overflow: "hidden",
-                        transition: "border-color 0.25s, box-shadow 0.25s",
-                      }}
-                    >
-                      {/* Top / bottom fade */}
-                      <div style={{
-                        position: "absolute", inset: 0,
-                        background: "linear-gradient(to bottom, rgba(6,8,16,0.88) 0%, transparent 28%, transparent 72%, rgba(6,8,16,0.88) 100%)",
-                        pointerEvents: "none", zIndex: 1,
-                      }} />
-
-                      {/* Symbol */}
-                      <motion.div
-                        style={{ position: "relative", zIndex: 2 }}
-                        animate={
-                          running[i]
-                            ? { y: [-6, 6, -6], opacity: [1, 0.6, 1] }
-                            : { y: 0, opacity: 1 }
-                        }
-                        transition={
-                          running[i]
-                            ? { duration: 0.18, repeat: Infinity, ease: "linear" }
-                            : { duration: 0.22, ease: "easeOut" }
-                        }
-                      >
-                        <SymbolDisplay id={symbol} />
-                      </motion.div>
-                    </div>
-
-                    {/* Win indicator dot */}
-                    <motion.div
-                      animate={
-                        !running[i] && isWon && winner
-                          ? {
-                              backgroundColor: PRIZES[winner].color,
-                              boxShadow: `0 0 10px ${PRIZES[winner].glow}`,
-                              scale: [1, 1.4, 1],
-                            }
-                          : { backgroundColor: "transparent", boxShadow: "none", scale: 1 }
-                      }
-                      transition={{ duration: 0.3, delay: i * 0.1 }}
-                      style={{
-                        width: 8, height: 8, borderRadius: "50%",
-                        border: "1px solid rgba(212,175,55,0.22)",
-                      }}
-                    />
-                  </div>
-                ))}
+            <div className="bs-fascia">
+              <i className="bs-screw bs-screw-left" aria-hidden="true" /><i className="bs-screw bs-screw-right" aria-hidden="true" />
+              <div className="bs-meter-row"><div><small>PARTIES</small><strong>{String(stats.spins).padStart(3, '0')}</strong></div><span>TRIPLE CHANCE</span><div><small>VICTOIRES</small><strong>{String(stats.wins).padStart(3, '0')}</strong></div></div>
+              <div className="bs-reel-frame">
+                <div className="bs-reels">{reels.map((symbol,i) => <Reel key={i} symbol={symbol} spinning={running[i]} index={i} />)}</div>
+                <span className="bs-payline bs-payline-left" aria-hidden="true">▶</span><span className="bs-payline bs-payline-right" aria-hidden="true">◀</span>
               </div>
+              <div className="bs-reel-numbers" aria-hidden="true"><span>01</span><span>02</span><span>03</span></div>
+              <div className="bs-status" role="status" aria-live="polite" aria-atomic="true">
+                {isSpinning ? 'Les rouleaux tournent…' : isWon && winner ? `${prizes[winner].emoji} ${prizes[winner].name} !` : phase === 'lost' ? 'Pas de chance… À vous de rejouer !' : 'À vous de jouer !'}
+              </div>
+              <div className="bs-console"><div className="bs-speaker" aria-hidden="true" /><button type="button" className="bs-spin" onClick={handleSpin} disabled={isSpinning}><span>{isSpinning ? 'EN COURS…' : 'LANCER'}</span></button><div className="bs-coin" aria-hidden="true"><span /> <small>GRAMONT</small></div></div>
             </div>
-
-            {/* Result banner */}
-            <div
-              className="px-3 flex items-center justify-center"
-              style={{ minHeight: 44 }}
-            >
-              <AnimatePresence mode="wait">
-                {isWon && winner && (
-                  <motion.div
-                    key="won"
-                    initial={{ opacity: 0, scale: 0.85 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.85 }}
-                    className="text-center py-2 px-5 rounded"
-                    style={{
-                      background: `rgba(${winner === "strike" ? "196,30,58" : winner === "boule" ? "212,175,55" : "100,160,255"},0.08)`,
-                      border: `1px solid ${prizes[winner].color}38`,
-                    }}
-                  >
-                    <p
-                      className="font-heading text-[9px] tracking-[0.35em] uppercase mb-1"
-                      style={{ color: prizes[winner].color }}
-                    >
-                      ✨ Félicitations !
-                    </p>
-                    <p className="font-heading text-base" style={{ color: "#ffffff", fontWeight: 700 }}>
-                      {prizes[winner].emoji} {prizes[winner].name}
-                    </p>
-                  </motion.div>
-                )}
-                {phase === "lost" && (
-                  <motion.div
-                    key="lost"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    <p className="font-heading text-[9px] tracking-[0.3em] text-white/40 uppercase">
-                      Pas de chance... Réessayez !
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Spin button */}
-            <div className="px-3 pb-2">
-              <motion.button
-                onClick={handleSpin}
-                disabled={isSpinning}
-                whileTap={!isSpinning ? { scale: 0.97 } : {}}
-                className="btn-gold w-full py-2.5 rounded text-sm tracking-[0.15em] font-heading disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {isSpinning ? (
-                  <motion.span
-                    animate={{ opacity: [1, 0.35, 1] }}
-                    transition={{ duration: 0.55, repeat: Infinity }}
-                  >
-                    ⏳ En cours...
-                  </motion.span>
-                ) : (
-                  "🎳 LANCER !"
-                )}
-              </motion.button>
-            </div>
-
-            {/* Paytable */}
-            <div
-              className="grid grid-cols-3 gap-1.5 px-3 py-2"
-              style={{
-                borderTop: "1px solid rgba(212,175,55,0.18)",
-                background: "rgba(0,0,0,0.25)",
-              }}
-            >
-              {(Object.entries(prizes) as [SymbolId, (typeof PRIZES)[SymbolId]][]).map(([id, p]) => (
-                <div key={id} className="text-center">
-                  <p
-                    className="font-heading text-[8px] tracking-[0.2em] uppercase mb-1.5"
-                    style={{ color: p.color }}
-                  >
-                    {id === "boule" ? "BOULE" : id === "quille" ? "QUILLE" : "STRIKE"} ×3
-                  </p>
-                  <p className="text-xl leading-none mb-1">{p.emoji}</p>
-                  <p className="font-heading text-[7px] tracking-wide text-white/40 uppercase leading-tight">
-                    {p.name}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            {/* Bottom decorative lights */}
-            <div
-              className="flex justify-between items-center px-8 py-1.5"
-              style={{
-                borderTop: "1px solid rgba(212,175,55,0.18)",
-                background: "rgba(212,175,55,0.03)",
-              }}
-            >
-              {[...Array(9)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  style={{ width: 10, height: 10, borderRadius: "50%" }}
-                  animate={
-                    isSpinning
-                      ? {
-                          backgroundColor: ["#c41e3a", "#d4af37", "#c41e3a"],
-                          boxShadow: [
-                            "0 0 6px rgba(196,30,58,0.7)",
-                            "0 0 6px rgba(212,175,55,0.7)",
-                            "0 0 6px rgba(196,30,58,0.7)",
-                          ],
-                        }
-                      : { backgroundColor: "#d4af37", boxShadow: "0 0 4px rgba(212,175,55,0.35)" }
-                  }
-                  transition={{
-                    duration: 0.35,
-                    repeat: isSpinning ? Infinity : 0,
-                    delay: (8 - i) * 0.06,
-                  }}
-                />
-              ))}
-            </div>
+            <div className="bs-paytable" aria-label="Combinaisons gagnantes">{ALL.map(id => <div key={id}><strong>{SYMBOL_LABELS[id]} ×3</strong><span>{prizes[id].emoji} {prizes[id].name}</span></div>)}</div>
+            <div className="bs-base" aria-hidden="true"><span /></div>
+            <button type="button" className="bs-lever" onClick={handleSpin} disabled={isSpinning} aria-label="Tirer le levier pour lancer les rouleaux"><span className="bs-lever-mount" /><span className="bs-lever-arm"><span className="bs-lever-ball" /></span></button>
           </div>
-
-          {/* Subtitle */}
-          <p className="hidden md:block text-center font-heading text-[8px] tracking-[0.4em] text-white/30 uppercase mt-1">
-            Chance de victoire : 25% · Bowling de Gramont
-          </p>
-        </motion.div>
+        </section>
+        <footer className="bs-footer"><span>3 rouleaux · 3 combinaisons gagnantes</span><span>Chance de victoire : 25 %</span></footer>
       </main>
     </div>
   );
 }
+
+const SLOT_STYLES = `
+.bs-page{height:100dvh;min-height:560px;display:flex;flex-direction:column;color:#f9edda;font-family:Inter,system-ui,sans-serif;background:radial-gradient(ellipse at 50% 40%,#48314250,transparent 60%),radial-gradient(ellipse at 0 0,#233d4b60,transparent 50%),#080d17;color-scheme:dark}.bs-page *{box-sizing:border-box}.bs-nav{display:flex;justify-content:space-between;align-items:center;padding:12px 32px;border-bottom:1px solid #ffffff12;flex-shrink:0}.bs-nav a{display:flex;gap:10px;align-items:center;color:#b5bdca;text-decoration:none;font-size:14px}.bs-nav>span{display:flex;gap:8px;align-items:center;color:#e4c187;font-weight:700;letter-spacing:.15em}.bs-main{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;width:100%;max-width:1120px;margin:auto;padding:16px 28px 10px}.bs-page-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-shrink:0}.bs-page-heading p{font-size:10px;letter-spacing:.25em;color:#c6a36e;margin:0 0 4px}.bs-page-heading h1{font-size:28px;font-weight:600;letter-spacing:-.04em;line-height:1.1;margin:0}.bs-page-heading>span{font-size:13px;color:#aab4c4}.bs-stage{flex:1;min-height:0;display:flex;justify-content:center;align-items:center;padding:8px 48px 10px;perspective:1500px;position:relative}.bs-stage:before{content:'';position:absolute;bottom:0;left:10%;right:10%;height:12%;background:radial-gradient(ellipse,#000b,transparent 70%);filter:blur(8px)}
+.bs-machine{min-width:0;height:100%;max-height:660px;position:relative;display:flex;flex-direction:column;max-width:650px;width:100%;min-height:0;border:2px solid #e2b579;border-radius:36px 36px 22px 22px;padding:10px 12px 0;background:linear-gradient(100deg,#530a18,#bc2438 4%,#68101f 9%,#941b2e 50%,#440812 93%,#ce5b68 98%,#4c0b1a);box-shadow:inset 0 2px 2px #fff8,inset 0 -5px 8px #0009,7px 9px 0 #300710,9px 10px 0 #bc8650,16px 23px 26px #0009,0 0 70px #e6584310;transform:rotateX(2deg);isolation:isolate}
+.bs-marquee{flex:0 0 auto;background:radial-gradient(ellipse at center,#492217,#160e14 85%);border:2px solid #c7a362;border-radius:24px 24px 8px 8px;padding:8px 18px 7px;box-shadow:inset 0 0 0 2px #322117,inset 0 0 25px #000c,0 2px 2px #fff3}.bs-bulbs{display:flex;justify-content:space-between;gap:10px;margin-bottom:6px}.bs-bulbs i{width:6px;height:6px;background:#ffdfa1;border-radius:50%;box-shadow:0 0 6px #ffa940,0 0 12px #ffc06080}.bs-machine[data-phase=spinning] .bs-bulbs i{animation:bs-light .65s ease-in-out infinite alternate}.bs-machine[data-phase=won] .bs-marquee{box-shadow:0 0 26px #ecc97480,inset 0 0 25px #ffab2920}.bs-marquee-title{display:flex;align-items:center;justify-content:space-around;gap:10px}.bs-marquee-title>span{color:#e7b66b;font-size:24px;text-shadow:0 0 16px #ffc56488}.bs-marquee-title div{text-align:center}.bs-marquee-title small{display:block;font-size:9px;letter-spacing:.28em;color:#e2b781}.bs-marquee-title strong{font-size:clamp(22px,3.2vw,35px);font-weight:900;font-style:italic;letter-spacing:-.04em;line-height:1.1;color:#fff0c8;text-shadow:0 2px 0 #9b6533,0 4px 0 #372011,0 0 22px #ffb63260}.bs-marquee-title em{color:#f0b457;font-style:inherit}.bs-marquee-rule{text-align:center;font-size:9px;letter-spacing:.22em;color:#b39570;margin-top:5px}
+.bs-fascia{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;margin:8px 3px 0;padding:9px 16px 10px;border:2px solid #232529;border-radius:12px 12px 5px 5px;background:linear-gradient(112deg,#b3aaa0 0%,#eee3d1 3%,#706c65 6%,#d9d0bf 12%,#b9afa0 49%,#eee6d7 80%,#575954 96%,#c8c3b5);box-shadow:inset 0 1px 0 #fff,0 0 0 1px #f7d89580,0 4px 8px #0008}.bs-screw{position:absolute;top:8px;width:7px;height:7px;border-radius:50%;background:linear-gradient(130deg,#dce1dc 40%,#4a4b45 45%,#4a4b45 55%,#c8cbc2 60%);box-shadow:0 1px 2px #000a}.bs-screw-left{left:6px}.bs-screw-right{right:6px}.bs-meter-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 8px 8px;flex-shrink:0}.bs-meter-row>div{display:flex;gap:10px;align-items:center;background:#171719;border:2px solid #605c54;border-radius:4px;padding:4px 10px;box-shadow:0 1px 1px #fff8,inset 0 2px 5px #000}.bs-meter-row small{font-size:8px;letter-spacing:.12em;color:#bbb19d}.bs-meter-row strong{font:20px/1 monospace;color:#ffd183;text-shadow:0 0 8px #ffc25060}.bs-meter-row>span{font-size:9px;letter-spacing:.18em;font-weight:800;color:#574b3f}
+.bs-reel-frame{position:relative;flex:1;min-height:0;padding:8px 12px;background:linear-gradient(145deg,#393933,#f7ead5 4%,#766451 7%,#171616 10%,#0a0a0a 90%,#d9c6a4 94%,#faf2e1 97%,#5a4c3c);border-radius:10px;box-shadow:0 2px 2px #fff9,0 -1px 2px #000a,inset 0 3px 6px #000}.bs-reels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;height:100%;overflow:hidden;border-radius:5px;border:2px solid #181716;background:#141313}.bs-reel{position:relative;overflow:hidden;container-type:size;background:#f0eadf;border-left:1px solid #ffffff;border-right:1px solid #857b6c;isolation:isolate}.bs-rest{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center}.bs-symbol{flex-shrink:0;height:62cqh;display:flex;align-items:center;justify-content:center}.bs-rest .bs-symbol:first-child,.bs-rest .bs-symbol:last-child{opacity:.48}.bs-reel .bs-symbol-art{scale:clamp(.45,tan(atan2(min(76cqw,48cqh),76px)),1.5)}.bs-symbol-art{transform:none;filter:drop-shadow(0 5px 3px #40332425)}
+.bs-strip{position:absolute;left:0;right:0;top:50%;margin-top:-31cqh;animation:bs-roll .46s linear infinite;filter:blur(1.4px)}.bs-strip .bs-symbol{height:62cqh}.bs-reel-glass{position:absolute;z-index:2;inset:0;pointer-events:none;background:linear-gradient(#201c19bf 0%,#655a4655 14%,#ffffff08 32%,#fff4 43%,transparent 52%,#54463550 84%,#171411d9 100%);box-shadow:inset 3px 0 8px #0005,inset -3px 0 8px #0005}.bs-reel-glass:after{content:'';position:absolute;inset:0;background:linear-gradient(113deg,transparent 20%,#fff5 21%,#fff1 29%,transparent 30%)}.bs-payline{position:absolute;top:50%;transform:translateY(-50%);font-size:16px;color:#f23d44;text-shadow:0 1px 2px #000,0 0 8px #ff2626;z-index:3}.bs-payline-left{left:-5px}.bs-payline-right{right:-5px}.bs-reel-numbers{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;font-size:9px;line-height:1;color:#574c3c;font-weight:700;letter-spacing:.14em;padding:5px 12px 2px;flex-shrink:0}
+.bs-status{flex:0 0 auto;text-align:center;min-height:30px;display:flex;align-items:center;justify-content:center;color:#ead296;font:12px/1.3 monospace;letter-spacing:.025em;background:#141d1a;border:2px solid #756c5f;border-radius:4px;margin:3px 8px 7px;padding:4px 8px;box-shadow:inset 0 2px 5px #000,0 1px 0 #fff9}.bs-machine[data-phase=won] .bs-status{color:#bbffb2;text-shadow:0 0 8px #72ff8860}.bs-console{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:0 10px;flex-shrink:0}.bs-spin{min-width:190px;min-height:48px;border-radius:50px;border:3px solid #4f3720;padding:4px;background:linear-gradient(#fff2ba,#99702f);box-shadow:0 4px 0 #45351e,0 7px 9px #0007,inset 0 1px 1px #fff;cursor:pointer;transition:transform .15s,box-shadow .15s}.bs-spin span{display:flex;align-items:center;justify-content:center;min-height:32px;border:1px solid #ffe9a3;border-radius:40px;background:radial-gradient(ellipse at 50% 0%,#fff4bd,#efb449 70%);color:#5a3210;font-size:17px;font-weight:900;letter-spacing:.14em;text-shadow:0 1px #fff8;box-shadow:inset 0 -4px 6px #b5682280}.bs-spin:not(:disabled):active{transform:translateY(3px);box-shadow:0 1px 0 #45351e,0 3px 5px #0007}.bs-spin:disabled{cursor:wait;filter:saturate(.5)}.bs-spin:disabled span{font-size:13px}.bs-speaker{height:28px;width:58px;background:repeating-linear-gradient(0deg,#252624 0 2px,transparent 2px 5px);border-radius:50%;opacity:.85}.bs-coin{display:flex;flex-direction:column;align-items:center;gap:4px}.bs-coin>span{display:block;width:47px;height:15px;border:4px solid #746f66;background:#080909;box-shadow:0 1px 0 #fff9,inset 0 2px 3px #000;border-radius:3px}.bs-coin small{font-size:7px;color:#5c5042;letter-spacing:.12em}.bs-paytable{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:10px 10px 8px;flex-shrink:0}.bs-paytable>div{text-align:center;padding:0 6px;border-right:1px solid #ffd9a330;line-height:1.2}.bs-paytable>div:last-child{border:0}.bs-paytable strong{display:block;font-size:11px;color:#ffd994;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}.bs-paytable span{font-size:11px;color:#f6dace}.bs-base{height:20px;flex-shrink:0;margin:0 -5px;background:linear-gradient(#ad7356,#3b1720 22%,#1a0a0e 80%,#ad8260);border-radius:5px 5px 14px 14px;border-top:1px solid #edb68b;display:flex;justify-content:center;padding-top:5px}.bs-base>span{width:45%;height:9px;background:linear-gradient(#0a0a0b,#272528);border:1px solid #755645;border-radius:3px;box-shadow:0 1px 0 #e6b99540}
+.bs-lever{position:absolute;right:-48px;top:40%;height:140px;width:46px;background:transparent;border:0;cursor:pointer;padding:0;perspective:600px;touch-action:manipulation}.bs-lever:disabled{cursor:wait}.bs-lever-mount{position:absolute;left:-3px;bottom:6px;width:28px;height:36px;border-radius:0 50% 50% 0;background:linear-gradient(90deg,#514b40,#d6c5a4 45%,#4b4137);border:2px solid #bcad92;box-shadow:3px 4px 5px #0008}.bs-lever-arm{position:absolute;bottom:24px;left:20px;width:10px;height:91px;background:linear-gradient(90deg,#4a4945,#fff3dd 40%,#a19279 65%,#393934);border-radius:5px;transform-origin:50% 100%;transform:rotate(10deg);box-shadow:3px 2px 4px #0008;transition:transform .2s}.bs-lever-ball{position:absolute;left:50%;top:-17px;transform:translateX(-50%);width:35px;height:35px;border-radius:50%;background:radial-gradient(circle at 30% 23%,#ffafb0,#e53645 28%,#8b091a 64%,#37050c);box-shadow:inset 0 1px 2px #fff8,4px 6px 10px #0008}.bs-lever:not(:disabled):hover .bs-lever-arm{transform:rotate(16deg)}.bs-machine[data-phase=spinning] .bs-lever-arm{animation:bs-pull .7s ease-in-out}.bs-footer{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:#8591a1;flex-shrink:0}.bs-page button:focus-visible,.bs-page a:focus-visible{outline:3px solid #fff2b9;outline-offset:5px}
+@keyframes bs-roll{from{transform:translateY(-186cqh)}to{transform:translateY(0)}}@keyframes bs-light{to{opacity:.35;box-shadow:0 0 2px #ffa940}}@keyframes bs-pull{0%,100%{transform:rotateX(0) rotate(10deg)}45%{transform:rotateX(-58deg) rotate(18deg)}}
+@media(max-width:640px){.bs-page{min-height:540px}.bs-nav{padding:10px 16px}.bs-nav a{font-size:12px}.bs-nav>span{font-size:13px}.bs-main{padding:10px 12px 8px;gap:8px}.bs-page-heading{display:block}.bs-page-heading h1{font-size:24px}.bs-page-heading>span{display:block;font-size:11px;margin-top:5px}.bs-stage{padding:3px 38px 8px 0}.bs-machine{max-height:570px;border-radius:25px 25px 18px 18px;padding:7px 7px 0;box-shadow:inset 0 2px 2px #fff8,4px 7px 0 #300710,6px 8px 0 #bc8650,10px 16px 20px #0008}.bs-marquee{padding:6px 8px;border-radius:18px 18px 6px 6px}.bs-bulbs{gap:4px;margin-bottom:4px}.bs-bulbs i{width:4px;height:4px}.bs-marquee-title strong{font-size:23px}.bs-marquee-title>span{font-size:15px}.bs-marquee-title small{font-size:7px}.bs-marquee-rule{font-size:7px;margin-top:4px}.bs-fascia{padding:7px 7px 9px;margin:6px 0 0}.bs-meter-row{gap:5px;padding:0 4px 6px}.bs-meter-row>span{font-size:7px;letter-spacing:.05em}.bs-meter-row>div{padding:4px;gap:5px}.bs-meter-row small{font-size:6px;letter-spacing:.03em}.bs-meter-row strong{font-size:16px}.bs-reel-frame{padding:6px}.bs-reels{gap:3px}.bs-status{margin:3px 0 7px;font-size:10px;min-height:28px}.bs-console{padding:0 3px;gap:8px}.bs-spin{min-width:138px;min-height:44px}.bs-spin span{font-size:15px;min-height:29px}.bs-speaker{width:28px;height:24px}.bs-coin>span{width:26px;height:12px;border-width:3px}.bs-coin small{font-size:5px}.bs-paytable{padding:8px 0;gap:2px}.bs-paytable>div{padding:0 3px}.bs-paytable strong{font-size:9px;letter-spacing:0}.bs-paytable span{font-size:9px;display:block;line-height:1.2}.bs-lever{right:-31px;width:30px;height:110px}.bs-lever-arm{left:13px;height:68px;width:7px}.bs-lever-ball{width:26px;height:26px;top:-14px}.bs-lever-mount{width:20px;height:30px;bottom:9px}.bs-base{height:16px}.bs-base>span{height:7px}.bs-footer{font-size:9px;gap:6px}}
+@media(min-width:641px) and (max-height:720px){.bs-main{padding-top:10px;gap:7px}.bs-marquee{padding-top:5px;padding-bottom:5px}.bs-marquee-title strong{font-size:27px}.bs-marquee-rule{margin-top:2px}.bs-paytable{padding-top:7px;padding-bottom:7px}.bs-status{min-height:26px;margin-bottom:5px}.bs-meter-row{padding-bottom:5px}.bs-spin{min-height:42px}.bs-spin span{min-height:27px}.bs-base{height:16px}}
+@media(prefers-reduced-motion:reduce){.bs-page *,.bs-page *:before,.bs-page *:after{animation:none!important;transition:none!important}}
+`;

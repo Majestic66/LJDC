@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Crown } from "lucide-react";
 import WinOverlay from "../components/WinOverlay";
@@ -82,6 +82,12 @@ export default function Plinko() {
   const isAdulteRef = useRef(isAdulte);
   isAdulteRef.current = isAdulte;
 
+  const reducedMotion = useReducedMotion();
+  const backgroundRef = useRef<HTMLCanvasElement | null>(null);
+  const trailRef = useRef<Array<{ x: number; y: number }>>([]);
+  const viewHeightRef = useRef(850);
+  const lastTrailPositionRef = useRef<Ball | null>(null);
+
   // Canvas dimensions (responsive)
   const W = 1500;
   const H = 850;
@@ -91,84 +97,107 @@ export default function Plinko() {
     pegsRef.current = buildPegs(W, H);
   }, []);
 
-  // ── Drawing ─────────────────────────────────────────────────────────────────
+  // Rendering uses separate display coordinates. Physics stays at 1500 × 850.
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d")!;
-    ctx.clearRect(0, 0, W, H);
-
-    // Background
-    ctx.fillStyle = "#080b16";
-    ctx.fillRect(0, 0, W, H);
-
-    // Bucket grid lines
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const vh = viewHeightRef.current;
+    const sy = vh / H;
     const bucketW = W / 12;
-    for (let i = 0; i <= 12; i++) {
-      ctx.beginPath();
-      ctx.moveTo(i * bucketW, H * 0.78);
-      ctx.lineTo(i * bucketW, H);
-      ctx.strokeStyle = "rgba(212,175,55,0.18)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    // Buckets
-    for (let i = 0; i < 12; i++) {
-      const x = i * bucketW;
-      const p = PRIZES[i];
-      const isHighlight = highlight === i;
-
-      // bucket fill
-      if (isHighlight) {
-        const m = p ? PRIZE_META[p] : null;
-        const grad = ctx.createLinearGradient(x, H * 0.78, x, H);
-        grad.addColorStop(0, m ? m.color + "55" : "rgba(212,175,55,0.25)");
-        grad.addColorStop(1, m ? m.color + "18" : "rgba(212,175,55,0.06)");
-        ctx.fillStyle = grad;
-      } else {
-        ctx.fillStyle = p
-          ? PRIZE_META[p].color + "12"
-          : "rgba(255,255,255,0.02)";
+    const floor = H * 0.78 * sy;
+    if (!backgroundRef.current) {
+      const surface = document.createElement('canvas');
+      surface.width = W;
+      surface.height = vh;
+      const bg = surface.getContext('2d')!;
+      const field = bg.createLinearGradient(0, 0, W, vh);
+      field.addColorStop(0, '#173638'); field.addColorStop(0.45, '#0c232a'); field.addColorStop(1, '#06151e');
+      bg.fillStyle = field; bg.fillRect(0, 0, W, vh);
+      const light = bg.createRadialGradient(W * .5, vh * .14, 0, W * .5, vh * .4, W * .8);
+      light.addColorStop(0, '#55dbc019'); light.addColorStop(1, '#03101a00');
+      bg.fillStyle = light; bg.fillRect(0,0,W,vh);
+      // Quiet etched grid, recessed collection wells, and raised metal dividers.
+      bg.strokeStyle = '#b4eee909'; bg.lineWidth = 1;
+      for (let x=25;x<W;x+=50) { bg.beginPath();bg.moveTo(x,0);bg.lineTo(x,floor);bg.stroke(); }
+      for(let i=0;i<12;i++) {
+        const x = i * bucketW, p = PRIZES[i];
+        const well = bg.createLinearGradient(0,floor,0,vh);
+        well.addColorStop(0,'#020b10');well.addColorStop(.25,p ? PRIZE_META[p].color + '24' : '#18262c');well.addColorStop(1,'#040b11');
+        bg.fillStyle=well;bg.fillRect(x+4,floor,bucketW-8,vh-floor);
+        bg.fillStyle=p ? PRIZE_META[p].color : '#415361';bg.fillRect(x+15,vh-12,bucketW-30,4);
+        const rail=bg.createLinearGradient(x,0,x+9,0);
+        rail.addColorStop(0,'#0a1419');rail.addColorStop(.45,'#98acac');rail.addColorStop(.6,'#53686d');rail.addColorStop(1,'#0b1820');
+        bg.fillStyle=rail;bg.fillRect(x,floor,9,vh-floor);
+        bg.textAlign='center';bg.textBaseline='middle';bg.font='500 19px system-ui';bg.fillStyle='#91a8ae';
+        bg.fillText(String(i+1).padStart(2,'0'),x+bucketW/2,floor+(vh-floor)*.17);
+        bg.font='43px "Segoe UI Emoji", sans-serif';
+        const emoji=p ? p==='pochette' && isAdulteRef.current ? '🥃' : p==='bonbons' && isAdulteRef.current ? '🥃' : p==='barbapapa' && isAdulteRef.current ? '🍭' : PRIZE_META[p].emoji : '–';
+        bg.fillStyle=p ? '#ffffff' : '#455766';bg.fillText(emoji,x+bucketW/2,floor+(vh-floor)*.61);
       }
-      ctx.fillRect(x, H * 0.78, bucketW, H * 0.22);
-
-      // emoji
-      ctx.font = `${bucketW * 0.52}px serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.globalAlpha = p ? (isHighlight ? 1 : 0.65) : 0.12;
-      ctx.fillText(p ? (p === 'pochette' && isAdulteRef.current ? "🥃" : p === 'bonbons' && isAdulteRef.current ? "🥃" : p === 'barbapapa' && isAdulteRef.current ? "🍭" : PRIZE_META[p].emoji) : "•", x + bucketW / 2, H * 0.9);
-      ctx.globalAlpha = 1;
+      for (const peg of pegsRef.current) {
+        const y=peg.y*sy;
+        bg.beginPath();bg.ellipse(peg.x+5,y+8,PEG_R*1.55,PEG_R*.8,0,0,Math.PI*2);bg.fillStyle='#00000070';bg.fill();
+        bg.fillStyle='#243a42';bg.beginPath();bg.arc(peg.x,y+3,PEG_R+2,0,Math.PI*2);bg.fill();
+        const steel=bg.createRadialGradient(peg.x-3,y-3,0,peg.x,y,PEG_R);
+        steel.addColorStop(0,'#f5fffa');steel.addColorStop(.28,'#c3e5db');steel.addColorStop(.56,'#7bafb0');steel.addColorStop(1,'#284c58');
+        bg.fillStyle=steel;bg.beginPath();bg.arc(peg.x,y,PEG_R,0,Math.PI*2);bg.fill();
+        bg.fillStyle='#ffffffb0';bg.beginPath();bg.arc(peg.x-2,y-3,1.4,0,Math.PI*2);bg.fill();
+      }
+      backgroundRef.current=surface;
     }
-
-    // Pegs
-    for (const peg of pegsRef.current) {
-      ctx.beginPath();
-      ctx.arc(peg.x, peg.y, PEG_R, 0, Math.PI * 2);
-      const grad = ctx.createRadialGradient(peg.x - 1, peg.y - 1, 0, peg.x, peg.y, PEG_R);
-      grad.addColorStop(0, "#f5d485");
-      grad.addColorStop(1, "#8a6000");
-      ctx.fillStyle = grad;
-      ctx.fill();
+    ctx.clearRect(0,0,W,vh);
+    ctx.drawImage(backgroundRef.current,0,0);
+    if(highlight!==null) {
+      const x=highlight*bucketW,p=PRIZES[highlight];
+      const color=p ? PRIZE_META[p].color : '#a1c7cc';
+      const glow=ctx.createLinearGradient(0,floor,0,vh);
+      glow.addColorStop(0,color+'06');glow.addColorStop(1,color+'70');
+      ctx.fillStyle=glow;ctx.fillRect(x+9,floor,bucketW-13,vh-floor);
+      ctx.strokeStyle=color;ctx.lineWidth=4;ctx.strokeRect(x+9,floor+2,bucketW-15,vh-floor-5);
     }
-
-    // Ball
-    const ball = ballRef.current;
-    if (ball && !ball.done) {
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-      const grad = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 0, ball.x, ball.y, BALL_R);
-      grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(0.4, "#e8c86a");
-      grad.addColorStop(1, "#7a5000");
-      ctx.fillStyle = grad;
-      ctx.shadowColor = "rgba(212,175,55,0.7)";
-      ctx.shadowBlur  = 12;
-      ctx.fill();
-      ctx.shadowBlur = 0;
+    const ball=ballRef.current;
+    // Reset the visual trail for each new ball without consuming game randomness.
+    if(lastTrailPositionRef.current!==ball){trailRef.current=[];lastTrailPositionRef.current=ball;}
+    if(ball) {
+      if(!reducedMotion && !ball.done) {
+        trailRef.current.push({x:ball.x,y:ball.y});
+        if(trailRef.current.length>14)trailRef.current.shift();
+        trailRef.current.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y*sy,3+i*.65,0,Math.PI*2);ctx.fillStyle=`rgba(137,255,223,${i/80})`;ctx.fill();});
+      }
+      const x=ball.done && ball.bucket!==null ? bucketX(ball.bucket,W) : ball.x;
+      const y=ball.done ? floor+(vh-floor)*.34 : ball.y*sy;
+      if(!ball.done) {
+        for(const peg of pegsRef.current) {
+          const distance=Math.hypot(ball.x-peg.x,ball.y-peg.y);
+          if(distance<34){ctx.beginPath();ctx.arc(peg.x,peg.y*sy,PEG_R+7,0,Math.PI*2);ctx.strokeStyle='#a6ffe99a';ctx.lineWidth=2;ctx.stroke();}
+        }
+      }
+      ctx.beginPath();ctx.ellipse(x+8,y+12,BALL_R*1.3,BALL_R*.7,0,0,Math.PI*2);ctx.fillStyle='#00000080';ctx.fill();
+      const halo=ctx.createRadialGradient(x,y,0,x,y,45);halo.addColorStop(0,'#b1ffe976');halo.addColorStop(1,'#8dffdf00');ctx.fillStyle=halo;ctx.fillRect(x-45,y-45,90,90);
+      const chrome=ctx.createRadialGradient(x-4,y-5,1,x,y,BALL_R+2);chrome.addColorStop(0,'#ffffff');chrome.addColorStop(.26,'#e2fff0');chrome.addColorStop(.57,'#69d9b9');chrome.addColorStop(.8,'#176758');chrome.addColorStop(1,'#a8ead6');
+      ctx.beginPath();ctx.arc(x,y,BALL_R+2,0,Math.PI*2);ctx.fillStyle=chrome;ctx.fill();
     }
-  }, [highlight]);
+  }, [highlight, reducedMotion, isAdulte]);
+
+  // Fit the visible board to the available screen while preserving all physical coordinates.
+  useEffect(() => {
+    const canvas=canvasRef.current;
+    if(!canvas)return;
+    const resize = () => {
+      const rect=canvas.getBoundingClientRect();
+      if(!rect.width || !rect.height)return;
+      const height=Math.max(300,Math.round(W*rect.height/rect.width));
+      if(canvas.height!==height){canvas.width=W;canvas.height=height;viewHeightRef.current=height;}
+      backgroundRef.current=null;
+      draw();
+    };
+    const observer=new ResizeObserver(resize);
+    observer.observe(canvas);
+    resize();
+    return()=>observer.disconnect();
+  },[draw,isAdulte]);
 
   // ── Physics loop ─────────────────────────────────────────────────────────────
   const tick = useCallback((ts: number) => {
@@ -268,9 +297,13 @@ export default function Plinko() {
 
   const isDropping = phase === "dropping";
 
-  return (
-    <div className="h-dvh bg-plinko text-white flex flex-col overflow-hidden">
+  const visiblePrizes = isAdulte
+    ? { ...PRIZE_META, bonbons: {...PRIZE_META.bonbons,emoji:'🥃',label:'1 Shooter'}, barbapapa:{...PRIZE_META.barbapapa,emoji:'🍭',label:'Barbe à Papa'}, pochette:{...PRIZE_META.pochette,emoji:'🥃',label:'Tournée de Shooters'} }
+    : PRIZE_META;
 
+  return (
+    <div className="pl-page">
+      <style>{PLINKO_STYLES}</style>
       {/* Win overlay */}
       {prize && (
         <WinOverlay
@@ -283,189 +316,35 @@ export default function Plinko() {
         />
       )}
 
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 border-b border-white/20 backdrop-blur-lg bg-white/15 flex justify-between items-center px-6 py-4 md:px-14">
-        <Link to={isAdulte ? "/jeux/adultes" : "/jeux/enfants"} className="font-heading flex items-center gap-3 text-white hover:text-purple-200 transition-colors text-xs tracking-[0.25em] uppercase drop-shadow-md">
-          <ArrowLeft size={16} strokeWidth={2} />
-          Retour
-        </Link>
-        <div className="font-display text-xl text-white flex items-center gap-2 drop-shadow-md">
-          <Crown size={18} />
-          L.J.D.C
+
+      <nav className="pl-nav"><Link to={isAdulte ? '/jeux/adultes' : '/jeux/enfants'}><ArrowLeft size={18}/> Retour aux jeux</Link><span><Crown size={19}/> L.J.D.C</span></nav>
+      <main className="pl-main">
+        <header className="pl-heading"><div><p>GRAMONT CASINO</p><h1>Plinko<span> ✦</span></h1></div><p>Lâchez la bille. Suivez votre chance.</p></header>
+        <div className="pl-game">
+          <section className="pl-stage" aria-label="Plateau de Plinko">
+            <div className="pl-cabinet" data-active={isDropping}>
+              <div className="pl-board-top"><span>PLINKO</span><div className="pl-launcher" aria-hidden="true"><i /></div><span>12 CASES</span></div>
+              <div className="pl-frame"><canvas ref={canvasRef} width={W} height={H} role="img" aria-label="Plateau de 18 rangées de plots et 12 cases d’arrivée. Les résultats sont annoncés sous le plateau." /></div>
+              <div className="pl-board-base"><span>LES JEUX DE CARLOS</span><span>GRAMONT</span></div>
+            </div>
+          </section>
+          <aside className="pl-panel" aria-label="Commandes et lots">
+            <div className="pl-stats"><div><span>Lancers</span><strong>{String(stats.drops).padStart(2,'0')}</strong></div><div><span>Victoires</span><strong>{String(stats.wins).padStart(2,'0')}</strong></div></div>
+            <div className="pl-controls"><p className="pl-status" role="status" aria-live="polite" aria-atomic="true">{isDropping ? 'La bille est en jeu…' : phase==='won' && prize ? visiblePrizes[prize].emoji + ' ' + visiblePrizes[prize].label : phase==='lost' ? 'Pas de chance… Réessayez !' : 'À vous de jouer'}</p><motion.button type="button" onClick={handleDrop} disabled={isDropping} whileTap={reducedMotion ? undefined : {scale:.98}} className="pl-drop"><span className="pl-button-ball" aria-hidden="true"/>{isDropping ? 'Bille en jeu…' : 'Lâcher la bille'}</motion.button><p className="pl-selected">{highlight===null ? '5 cases gagnantes sur 12' : 'Bille arrivée dans la case ' + String(highlight+1).padStart(2,'0')}</p></div>
+            <div className="pl-prizes"><h2>Les lots à gagner</h2>{(Object.entries(visiblePrizes)).map(([id,p])=><div className="pl-prize" key={id}><span aria-hidden="true">{p.emoji}</span><div><strong>{p.label}</strong><small>{PRIZES.filter(x=>x===id).length} case{PRIZES.filter(x=>x===id).length>1?'s':''} gagnante{PRIZES.filter(x=>x===id).length>1?'s':''}</small></div></div>)}</div>
+            <p className="pl-note">Chaque rebond compte.</p>
+          </aside>
         </div>
-      </nav>
-
-      <main className="flex-1 min-h-0 flex flex-col items-center overflow-hidden py-3 px-4 gap-2">
-
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} className="text-center py-1">
-          <div className="flex items-center justify-center gap-3 mb-0.5">
-            <div className="h-px w-8 bg-white/40" />
-            <span className="text-lg">🪙</span>
-            <div className="h-px w-8 bg-white/40" />
-          </div>
-          <h1 className="font-heading text-lg md:text-xl text-white drop-shadow-lg" style={{ fontWeight: 800, letterSpacing: "0.1em" }}>
-            PLINKO
-          </h1>
-          <p className="font-heading text-[9px] tracking-[0.45em] uppercase mt-0 text-purple-200/80">
-            Gramont Casino
-          </p>
-        </motion.div>
-
-        {/* Stats */}
-        <div className="flex gap-8 font-heading text-[9px] tracking-widest uppercase">
-          <span className="text-white/50">Lancers : <span className="text-white/90">{stats.drops}</span></span>
-          <span className="text-white/50">Victoires : <span className="text-white/90">{stats.wins}</span></span>
-        </div>
-
-        {/* Board */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.94 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="flex-1 min-h-0 relative w-full max-w-none flex flex-col"
-        >
-          {/* Win glow */}
-          <AnimatePresence>
-            {phase === "won" && prize && (
-              <motion.div
-                key="glow"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 rounded-xl pointer-events-none"
-                style={{
-                  boxShadow: `0 0 80px ${PRIZE_META[prize].glow}, 0 0 160px ${PRIZE_META[prize].glow}`,
-                  zIndex: -1,
-                }}
-              />
-            )}
-          </AnimatePresence>
-
-          <div
-            className="flex-1 min-h-0 rounded-xl overflow-hidden flex flex-col"
-            style={{
-              background: "linear-gradient(175deg, #10152a, #090c18)",
-              border: "1.5px solid rgba(212,175,55,0.3)",
-              boxShadow: "0 24px 70px rgba(0,0,0,0.85), inset 0 1px 0 rgba(212,175,55,0.1)",
-            }}
-          >
-            {/* Top LED strip */}
-            <div className="flex justify-between items-center px-3 py-1" style={{ borderBottom: "1px solid rgba(212,175,55,0.15)", background: "rgba(212,175,55,0.025)" }}>
-              {[...Array(11)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  style={{ width: 6, height: 6, borderRadius: "50%" }}
-                  animate={isDropping
-                    ? { backgroundColor: ["#d4af37","#c41e3a","#d4af37"], boxShadow: ["0 0 5px rgba(212,175,55,0.7)","0 0 5px rgba(196,30,58,0.7)","0 0 5px rgba(212,175,55,0.7)"] }
-                    : { backgroundColor: "#d4af37", boxShadow: "0 0 3px rgba(212,175,55,0.4)" }}
-                  transition={{ duration: 0.3, repeat: isDropping ? Infinity : 0, delay: i * 0.05 }}
-                />
-              ))}
-            </div>
-
-            <div style={{ flex: "1 1 0", minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-              <canvas
-                ref={canvasRef}
-                width={W}
-                height={H}
-                style={{ maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", display: "block" }}
-              />
-            </div>
-
-            {/* Result banner */}
-            <div className="px-2 flex items-center justify-center" style={{ minHeight: 30 }}>
-              <AnimatePresence mode="wait">
-                {phase === "won" && prize && (
-                  <motion.div
-                    key="won"
-                    initial={{ opacity: 0, scale: 0.85 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-center py-1 px-4 rounded"
-                    style={{
-                      background: `${PRIZE_META[prize].color}14`,
-                      border: `1px solid ${PRIZE_META[prize].color}40`,
-                    }}
-                  >
-                    <p className="font-heading text-[8px] tracking-[0.35em] uppercase mb-0.5" style={{ color: PRIZE_META[prize].color }}>
-                      ✨ Félicitations !
-                    </p>
-                    <p className="font-heading text-sm" style={{ color: "#ffffff", fontWeight: 700 }}>
-                      {prize === 'bonbons' && isAdulte ? "🥃" : prize === 'pochette' && isAdulte ? "🥃" : prize === 'barbapapa' && isAdulte ? "🍭" : PRIZE_META[prize].emoji}{" "}
-                      {prize === 'bonbons' && isAdulte ? "1 Shooter" : prize === 'pochette' && isAdulte ? "Tournée de Shooters" : prize === 'barbapapa' && isAdulte ? "Barbe à Papa" : PRIZE_META[prize].label}
-                    </p>
-                  </motion.div>
-                )}
-                {phase === "lost" && (
-                  <motion.div key="lost" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <p className="font-heading text-[8px] tracking-[0.3em] text-white/40 uppercase">
-                      Pas de chance… Réessayez !
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Drop button */}
-            <div className="px-2 pb-1">
-              <motion.button
-                onClick={handleDrop}
-                disabled={isDropping}
-                whileTap={!isDropping ? { scale: 0.97 } : {}}
-                className="btn-gold w-full py-2 rounded text-xs tracking-[0.15em] font-heading disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {isDropping ? (
-                  <motion.span animate={{ opacity: [1, 0.35, 1] }} transition={{ duration: 0.55, repeat: Infinity }}>
-                    ⏳ En cours...
-                  </motion.span>
-                ) : "🪙 LÂCHER LA BILLE !"}
-              </motion.button>
-            </div>
-
-            {/* Paytable */}
-            <div
-              className="grid grid-cols-3 gap-1 px-2 py-1"
-              style={{ borderTop: "1px solid rgba(212,175,55,0.15)", background: "rgba(0,0,0,0.2)" }}
-            >
-{(Object.entries(
-                isAdulte
-                  ? { ...PRIZE_META, bonbons: { ...PRIZE_META.bonbons, emoji: "🥃", label: "1 Shooter" }, barbapapa: { ...PRIZE_META.barbapapa, emoji: "🍭", label: "Barbe à Papa" }, pochette: { ...PRIZE_META.pochette, emoji: "🥃", label: "Tournée de Shooters" } }
-                  : PRIZE_META
-                            ) as [keyof typeof PRIZE_META, typeof PRIZE_META[keyof typeof PRIZE_META]][]).map(([id, p]) => {
-                const count = PRIZES.filter(x => x === id).length;
-                return (
-                  <div key={id} className="text-center">
-                    <p className="font-heading text-[7px] tracking-[0.2em] uppercase mb-0.5" style={{ color: p.color }}>
-                      ×{count} case{count > 1 ? "s" : ""}
-                    </p>
-                    <p className="text-lg leading-none mb-0.5">{p.emoji}</p>
-                    <p className="font-heading text-[6px] tracking-wide text-white/40 uppercase leading-tight">{p.label}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Bottom LED strip */}
-            <div className="flex justify-between items-center px-3 py-1" style={{ borderTop: "1px solid rgba(212,175,55,0.15)", background: "rgba(212,175,55,0.025)" }}>
-              {[...Array(11)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  style={{ width: 6, height: 6, borderRadius: "50%" }}
-                  animate={isDropping
-                    ? { backgroundColor: ["#c41e3a","#d4af37","#c41e3a"], boxShadow: ["0 0 5px rgba(196,30,58,0.7)","0 0 5px rgba(212,175,55,0.7)","0 0 5px rgba(196,30,58,0.7)"] }
-                    : { backgroundColor: "#d4af37", boxShadow: "0 0 3px rgba(212,175,55,0.35)" }}
-                  transition={{ duration: 0.3, repeat: isDropping ? Infinity : 0, delay: (10 - i) * 0.05 }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <p className="hidden lg:block text-center font-heading text-[7px] tracking-[0.4em] text-white/25 uppercase mt-0">
-            5 cases gagnantes sur 12 · Bowling de Gramont
-          </p>
-        </motion.div>
+        <footer className="pl-footer">Bowling de Gramont <span>18 rangées · 12 cases · Une bille</span></footer>
       </main>
     </div>
   );
 }
+
+const PLINKO_STYLES = `
+.pl-page{height:100dvh;min-height:530px;display:flex;flex-direction:column;color:#eaf3f3;background:radial-gradient(ellipse at 20% 35%,#16464570,transparent 55%),radial-gradient(ellipse at 95% 80%,#20353e50,transparent 50%),#080f16;font-family:Inter,system-ui,sans-serif;color-scheme:dark}.pl-page *{box-sizing:border-box}.pl-nav{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;padding:12px 32px;border-bottom:1px solid #ffffff10}.pl-nav a{display:flex;align-items:center;gap:10px;font-size:14px;color:#acbac5;text-decoration:none}.pl-nav>span{display:flex;align-items:center;gap:8px;color:#dfc297;font-weight:700;letter-spacing:.15em}.pl-main{display:flex;flex-direction:column;flex:1;min-height:0;width:100%;max-width:1500px;margin:auto;padding:20px 30px 12px;gap:16px}.pl-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-shrink:0}.pl-heading div>p{font-size:10px;letter-spacing:.25em;color:#9bafa8;margin:0 0 4px}.pl-heading h1{font-size:34px;font-weight:600;letter-spacing:-.045em;line-height:1.1;margin:0}.pl-heading h1 span{font-size:23px;color:#94e6cd}.pl-heading>p{color:#9eafb8;font-size:13px;margin:0}.pl-game{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:24px}.pl-stage{min-width:0;min-height:0;perspective:1700px;padding:3px 8px 10px 0;display:flex}.pl-cabinet{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;transform:rotateX(3deg);border:1px solid #bbb394;border-radius:22px;padding:8px;background:linear-gradient(110deg,#1d343b,#6f8887 2%,#233840 5%,#192c34 94%,#79938e 98%,#20343b);box-shadow:inset 0 2px 1px #edfff780,5px 7px 0 #0a191e,6px 8px 0 #58665e,10px 18px 30px #0009;position:relative}.pl-cabinet:before,.pl-cabinet:after{content:'';position:absolute;top:72px;bottom:46px;width:2px;background:#74e7c9;box-shadow:0 0 8px #62eac8aa,0 0 18px #62eac850;border-radius:8px;pointer-events:none}.pl-cabinet:before{left:5px}.pl-cabinet:after{right:5px}.pl-board-top{display:flex;align-items:center;justify-content:space-between;flex:0 0 40px;padding:0 14px;background:linear-gradient(#17292e,#102028);border-radius:14px 14px 0 0;border:1px solid #ffffff12;border-bottom:0;color:#b6d0c8;font-size:10px;letter-spacing:.18em;font-weight:700}.pl-launcher{width:80px;align-self:stretch;position:relative;background:linear-gradient(90deg,#344740,#13221f 18%,#081310 50%,#13221f 82%,#6f8a7c);border-left:1px solid #acc2a862;border-right:1px solid #acc2a862;border-radius:0 0 18px 18px;box-shadow:inset 0 4px 8px #0009}.pl-launcher i{position:absolute;width:14px;height:14px;border-radius:50%;left:calc(50% - 7px);top:10px;background:radial-gradient(circle at 30% 25%,#fff,#a5ead2 30%,#297b68 70%,#103e37);box-shadow:0 0 12px #87f1c966}.pl-cabinet[data-active=true] .pl-launcher i{opacity:.2}.pl-frame{flex:1;min-height:0;min-width:0;position:relative;padding:7px;background:linear-gradient(130deg,#080f13,#697d78 1%,#102327 3%,#08141a 97%,#65847b);border:1px solid #081217;border-radius:5px;box-shadow:inset 0 3px 7px #000b,0 1px 0 #9fbeb94d}.pl-frame:after{content:'';position:absolute;inset:7px;pointer-events:none;background:linear-gradient(115deg,transparent 8%,#f0fff904 9%,#f0fff907 19%,transparent 20%);box-shadow:inset 0 0 30px #0006}.pl-frame canvas{display:block;width:100%;height:100%;border-radius:2px}.pl-board-base{display:flex;justify-content:space-between;align-items:center;flex:0 0 26px;padding:0 12px;color:#7f969d;font-size:8px;letter-spacing:.2em;border-top:1px solid #a5b6a71c;background:linear-gradient(#1b3039,#14232b);border-radius:0 0 13px 13px}
+.pl-panel{display:flex;flex-direction:column;justify-content:center;gap:20px;min-height:0}.pl-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pl-stats>div{border:1px solid #ffffff0e;border-radius:12px;background:#ffffff03;padding:13px 16px}.pl-stats span{display:block;font-size:12px;color:#8fa6b0;margin-bottom:4px}.pl-stats strong{font-size:30px;line-height:1;font-weight:500;font-variant-numeric:tabular-nums;color:#e8efdf}.pl-controls{padding:18px 16px;background:linear-gradient(145deg,#1c343b70,#11242d60);border:1px solid #9cd7c41c;border-radius:16px}.pl-status{font-size:14px;min-height:40px;display:flex;justify-content:center;align-items:center;text-align:center;line-height:1.4;color:#c8ded8;margin:0 0 12px}.pl-drop{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:48px;padding:10px 14px;border-radius:10px;border:1px solid #d5ffee;background:linear-gradient(135deg,#b9f5df,#77cdb3);color:#123d35;font:700 14px Inter,system-ui,sans-serif;box-shadow:0 4px 0 #31594c,0 8px 18px #0006,inset 0 1px 0 #fff9;cursor:pointer;transition:filter .2s}.pl-drop:hover:not(:disabled){filter:brightness(1.1)}.pl-drop:disabled{cursor:wait;filter:saturate(.4);opacity:.7}.pl-button-ball{width:16px;height:16px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#fff,#d5ffe9 20%,#4b9b7f 60%,#154435);box-shadow:1px 2px 2px #17413160}.pl-selected{font-size:11px;text-align:center;color:#8fa9a8;margin:14px 0 0;line-height:1.3}.pl-prizes{border-top:1px solid #ffffff10;padding-top:18px}.pl-prizes h2{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#839ba5;margin:0 0 14px;font-weight:500}.pl-prize{display:flex;align-items:center;gap:12px;margin-top:14px}.pl-prize>span{display:flex;align-items:center;justify-content:center;width:40px;height:40px;font-size:22px;background:#ffffff04;border:1px solid #ffffff0d;border-radius:11px;flex-shrink:0}.pl-prize strong{font-size:13px;font-weight:500;color:#d6dfdf;display:block;line-height:1.3}.pl-prize small{display:block;font-size:11px;color:#819ba4;margin-top:4px}.pl-note{font-size:11px;color:#63828a;text-align:center;margin:0}.pl-footer{flex-shrink:0;display:flex;justify-content:space-between;gap:12px;color:#71868f;font-size:10px;letter-spacing:.06em}.pl-page button:focus-visible,.pl-page a:focus-visible{outline:3px solid #bbffe4;outline-offset:5px}
+@media(max-height:720px) and (min-width:761px){.pl-main{padding-top:12px;gap:10px}.pl-panel{gap:12px}.pl-stats>div{padding:10px 14px}.pl-stats strong{font-size:24px}.pl-controls{padding:12px}.pl-status{min-height:30px;margin-bottom:8px}.pl-prizes{padding-top:12px}.pl-prizes h2{margin-bottom:8px}.pl-prize{margin-top:9px}.pl-note{display:none}}
+@media(max-width:760px){.pl-nav{padding:10px 16px}.pl-nav a{font-size:12px}.pl-nav>span{font-size:13px}.pl-main{padding:12px 14px 8px;gap:10px}.pl-heading h1{font-size:27px}.pl-heading>p{font-size:11px;max-width:140px;text-align:right;line-height:1.4}.pl-game{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto;gap:12px}.pl-stage{padding-right:6px;padding-bottom:7px}.pl-cabinet{padding:6px;border-radius:17px}.pl-board-top{flex-basis:27px;font-size:8px;padding:0 10px;border-radius:11px 11px 0 0}.pl-launcher{width:52px}.pl-launcher i{top:5px;width:11px;height:11px;left:calc(50% - 5.5px)}.pl-frame{padding:4px}.pl-frame:after{inset:4px}.pl-board-base{flex-basis:18px;font-size:6px;padding:0 8px}.pl-cabinet:before,.pl-cabinet:after{top:46px;bottom:29px;width:1px}.pl-cabinet:before{left:3px}.pl-cabinet:after{right:3px}.pl-panel{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 10px}.pl-stats{gap:6px;align-self:stretch}.pl-stats>div{padding:8px 5px;text-align:center;border-radius:9px;display:flex;flex-direction:column;justify-content:center}.pl-stats span{font-size:9px}.pl-stats strong{font-size:20px}.pl-controls{padding:0;background:none;border:0;display:flex;flex-direction:column}.pl-status{font-size:11px;min-height:14px;margin-bottom:6px;line-height:1.3}.pl-drop{min-height:40px;font-size:13px;padding:8px}.pl-selected{font-size:9px;margin-top:8px}.pl-prizes{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding-top:8px}.pl-prizes h2{grid-column:1/-1;margin:0;font-size:9px;letter-spacing:.1em}.pl-prize{gap:6px;margin:0;align-items:center}.pl-prize>span{width:26px;height:30px;font-size:18px;border:0;background:none}.pl-prize strong{font-size:10px;line-height:1.25}.pl-prize small{font-size:9px;margin-top:3px}.pl-note{display:none}.pl-footer{font-size:8px;gap:6px;letter-spacing:0}}
+@media(prefers-reduced-motion:reduce){.pl-page *{transition:none!important}}
+`;

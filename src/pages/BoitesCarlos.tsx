@@ -1,5 +1,5 @@
-import { useState, useCallback, FC } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useState, useCallback, FC, CSSProperties } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Crown, RefreshCw } from "lucide-react";
 import WinOverlay from "../components/WinOverlay";
@@ -48,9 +48,21 @@ const BOX_COLORS = [
   "#7c3aed", "#b91c1c", "#0f766e", "#a16207", "#4338ca",
 ];
 
+function shadeColor(hex: string, percent: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.max(0, (n >> 16) + Math.round(2.55 * percent)));
+  const g = Math.min(255, Math.max(0, ((n >> 8) & 0xff) + Math.round(2.55 * percent)));
+  const b = Math.min(255, Math.max(0, (n & 0xff) + Math.round(2.55 * percent)));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 const Box: FC<BoxProps> = ({ index, prize, state, onClick, disabled, isAdulte }) => {
-  const base  = BOX_COLORS[index % BOX_COLORS.length];
-  const isOpen = state === "open" || state === "opening";
+  const base    = BOX_COLORS[index % BOX_COLORS.length];
+  const light   = shadeColor(base, 32);
+  const dark    = shadeColor(base, -38);
+  const isOpen    = state === "open";
+  const isOpening = state === "opening";
+  const isClosed  = state === "closed";
   const meta  = prize
     ? (prize === 'pochette' && isAdulte
       ? { ...PRIZE_META.pochette, label: "Tournée de Shooters", emoji: "🥃", short: "Shooter" }
@@ -60,114 +72,55 @@ const Box: FC<BoxProps> = ({ index, prize, state, onClick, disabled, isAdulte })
       ? { ...PRIZE_META.barbapapa, label: "Barbe à Papa", emoji: "🍭", short: "Barbe à Papa" }
       : PRIZE_META[prize])
     : null;
+  const revealed = isOpening || isOpen;
+  const dimmed = disabled && isClosed;
 
+  const reduceMotion = useReducedMotion();
   return (
     <motion.button
+      type="button"
+      className="carlos-box"
+      data-state={state}
+      aria-label={`Boîte ${index + 1}${isOpen ? meta ? ': ' + meta.label : ': vide' : isOpening ? ' : ouverture' : ''}`}
       onClick={onClick}
-      disabled={disabled || isOpen}
-      whileHover={!disabled && !isOpen ? { scale: 1.07, y: -4 } : {}}
-      whileTap={!disabled && !isOpen ? { scale: 0.96 } : {}}
-      className="relative flex flex-col items-center justify-center rounded-lg select-none"
-      style={{
-        aspectRatio: "2.2",
-        background: isOpen
-          ? "linear-gradient(145deg, #0d1020, #090c18)"
-          : `linear-gradient(145deg, ${base}dd, ${base}88)`,
-        border: isOpen
-          ? `1.5px solid ${meta ? meta.color + "60" : "rgba(255,255,255,0.08)"}`
-          : `1.5px solid ${base}cc`,
-        boxShadow: isOpen
-          ? meta ? `0 0 18px ${meta.glow}` : "none"
-          : `0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.15)`,
-        cursor: disabled || isOpen ? "default" : "pointer",
-        transition: "background 0.3s, border 0.3s, box-shadow 0.3s",
-        minWidth: 0,
-      }}
-      layout
+      disabled={disabled || !isClosed}
+      whileHover={!disabled && isClosed && !reduceMotion ? { y: -7 } : undefined}
+      whileTap={!disabled && isClosed && !reduceMotion ? { scale: 0.96 } : undefined}
+      style={{ '--box': base, '--light': light, '--dark': dark, opacity: dimmed ? 0.4 : 1 } as CSSProperties}
+      transition={{ type: 'spring', stiffness: 320, damping: 24 }}
     >
-      <AnimatePresence mode="wait">
-        {!isOpen ? (
-          /* ── Closed lid ── */
-          <motion.div
-            key="closed"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.7, transition: { duration: 0.18 } }}
-            className="flex flex-col items-center gap-0.5 pointer-events-none w-full h-full justify-center"
+      <span className="carlos-box-shadow" aria-hidden="true" />
+      <span className="carlos-cube" aria-hidden="true">
+        <span className="carlos-face carlos-back" />
+        <span className="carlos-face carlos-floor" />
+        <span className="carlos-face carlos-left" />
+        <span className="carlos-face carlos-right" />
+        <span className="carlos-face carlos-front">
+          <span className="carlos-ribbon" />
+          <span className="carlos-seal">{String(index + 1).padStart(2, '0')}</span>
+        </span>
+        <motion.span className="carlos-lid"
+          animate={{ rotateX: revealed ? -112 : 0 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.58, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <span className="carlos-lid-top"><span className="carlos-ribbon" /><span className="carlos-ribbon-cross" /></span>
+          <span className="carlos-lid-edge" />
+        </motion.span>
+      </span>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.span className={`carlos-reveal ${meta ? 'carlos-reveal-win' : ''}`}
+            initial={reduceMotion ? false : { opacity: 0, y: 12, scale: 0.85 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: reduceMotion ? 0 : 0.12 }}
+            aria-hidden="true"
           >
-            {/* Lid */}
-            <div
-              className="absolute top-0 left-0 right-0 rounded-t-lg"
-              style={{
-                height: "28%",
-                background: `linear-gradient(135deg, ${base}ff, ${base}aa)`,
-                borderBottom: `2px solid rgba(255,255,255,0.25)`,
-              }}
-            />
-            {/* Ribbon vertical */}
-            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[14%]"
-              style={{ background: "rgba(255,255,255,0.2)" }} />
-            {/* Ribbon horizontal */}
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[14%]"
-              style={{ background: "rgba(255,255,255,0.2)" }} />
-            {/* Bow */}
-            <div className="absolute -top-1 left-1/2 -translate-x-1/2 text-white/80"
-              style={{ fontSize: "clamp(10px, 2vw, 16px)", lineHeight: 1 }}>
-              🎀
-            </div>
-            {/* Number */}
-            <span
-              className="relative z-10 font-heading"
-              style={{
-                fontSize: "clamp(10px,2.5vw,18px)", fontWeight: 800,
-                color: "rgba(255,255,255,0.9)",
-                textShadow: "0 1px 4px rgba(0,0,0,0.5)",
-              }}
-            >
-              {index + 1}
-            </span>
-          </motion.div>
-        ) : (
-          /* ── Opened ── */
-          <motion.div
-            key="open"
-            initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            transition={{ type: "spring", bounce: 0.55, duration: 0.45 }}
-            className="flex flex-col items-center justify-center gap-0.5 pointer-events-none"
-          >
-            {meta ? (
-              <>
-                <motion.span
-                  animate={{ scale: [1, 1.2, 1] }}
-                  transition={{ duration: 0.4, repeat: 2 }}
-                  style={{ fontSize: "clamp(18px, 4vw, 36px)", lineHeight: 1 }}
-                >
-                  {meta.emoji}
-                </motion.span>
-                <span
-                  className="font-heading text-center leading-tight"
-                  style={{
-                    fontSize: "clamp(5px, 1.2vw, 9px)",
-                    color: meta.color,
-                    letterSpacing: "0.05em",
-                  }}
-                >
-                  {meta.short}
-                </span>
-              </>
-            ) : (
-              <motion.span
-                animate={{ opacity: [1, 0.4, 1] }}
-                transition={{ duration: 1.2, repeat: Infinity }}
-                style={{ fontSize: "clamp(14px, 3vw, 26px)", lineHeight: 1 }}
-              >
-                💨
-              </motion.span>
-            )}
-          </motion.div>
+            <span className="carlos-prize-icon">{meta ? meta.emoji : '💨'}</span>
+            <span>{meta ? meta.short : 'Vide'}</span>
+          </motion.span>
         )}
       </AnimatePresence>
+
     </motion.button>
   );
 };
@@ -194,7 +147,7 @@ export default function BoitesCarlos() {
     setStates(prev => { const n = [...prev]; n[i] = "opening"; return n; });
     setTimeout(() => {
       setStates(prev => { const n = [...prev]; n[i] = "open"; return n; });
-    }, 80);
+    }, 620);
 
     const prize = prizes[i];
     const newCount = openCount + 1;
@@ -204,7 +157,7 @@ export default function BoitesCarlos() {
       // Won — show overlay after a short delay so box animation plays first
       const p = prize as Exclude<PrizeId, null>;
       setWonPrize(p);
-      setTimeout(() => setShowWin(true), 500);
+      setTimeout(() => setShowWin(true), 750);
       setStats(s => ({ plays: s.plays + 1, wins: s.wins + 1 }));
     } else if (newCount >= TOTAL) {
       // All boxes opened
@@ -227,8 +180,8 @@ export default function BoitesCarlos() {
   const allEmpty  = gameOver && !wonPrize;
 
   return (
-    <div className="h-dvh bg-boites text-white flex flex-col overflow-hidden">
-
+    <div className="carlos-page">
+      <style>{CARLOS_STYLES}</style>
       {/* Win overlay */}
       {wonPrize && (
         <WinOverlay
@@ -241,211 +194,81 @@ export default function BoitesCarlos() {
         />
       )}
 
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 border-b border-white/20 backdrop-blur-lg bg-white/15 flex justify-between items-center px-6 py-4 md:px-14">
-        <Link to={isAdulte ? "/jeux/adultes" : "/jeux/enfants"} className="font-heading flex items-center gap-3 text-white hover:text-pink-200 transition-colors text-xs tracking-[0.25em] uppercase drop-shadow-md">
-          <ArrowLeft size={16} strokeWidth={2} />
-          Retour
-        </Link>
-        <div className="font-display text-xl text-white flex items-center gap-2 drop-shadow-md">
-          <Crown size={18} />
-          L.J.D.C
-        </div>
+
+      <nav className="carlos-nav">
+        <Link to={isAdulte ? '/jeux/adultes' : '/jeux/enfants'}><ArrowLeft size={18} /> Retour aux jeux</Link>
+        <span className="carlos-brand"><Crown size={21} /> L.J.D.C</span>
       </nav>
-
-      <main className="flex-1 min-h-0 flex flex-col items-center overflow-hidden py-1 px-4 gap-0.5">
-
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} className="text-center py-0">
-          <div className="flex items-center justify-center gap-2 mb-0">
-            <div className="h-px w-4 bg-white/40" />
-            <span className="text-sm">🎁</span>
-            <div className="h-px w-4 bg-white/40" />
+      <main className="carlos-main">
+        <header className="carlos-header">
+          <div><p className="carlos-eyebrow">GRAMONT CASINO</p><h1>Les boîtes de <span>Carlos</span></h1></div>
+          <div className="carlos-stats"><span>Parties <strong>{stats.plays}</strong></span><span>Victoires <strong>{stats.wins}</strong></span></div>
+        </header>
+        <section className="carlos-cabinet" aria-label="Les quinze boîtes de Carlos">
+          <div className="carlos-board-header"><h2>Choisissez une boîte</h2><span aria-live="polite" aria-atomic="true">{gameOver ? 'Partie terminée' : <><strong>{remaining}</strong> / 15 restantes</>}</span></div>
+          <div className="carlos-grid">
+            {prizes.map((prize, i) => <Box key={i} index={i} prize={prize} state={states[i]} onClick={() => handleBox(i)} disabled={gameOver && states[i] === 'closed'} isAdulte={isAdulte} />)}
           </div>
-          <h1 className="font-heading text-sm md:text-base text-white drop-shadow-lg" style={{ fontWeight: 800, letterSpacing: "0.08em" }}>
-            LES BOÎTES DE CARLOS
-          </h1>
-          <p className="font-heading text-[7px] tracking-[0.45em] uppercase mt-0 text-pink-200/80">
-            Gramont Casino
-          </p>
-        </motion.div>
-
-        {/* Stats & counter */}
-        <div className="flex gap-4 font-heading text-[7px] tracking-widest uppercase py-0">
-          <span className="text-white/50">Parties : <span className="text-white/90">{stats.plays}</span></span>
-          <span className="text-white/50">Victoires : <span className="text-white/90">{stats.wins}</span></span>
-        </div>
-
-        {/* Cabinet */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.94 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="flex-1 min-h-0 w-full max-w-none flex flex-col"
-        >
-          <div
-            className="flex-1 min-h-0 rounded-xl overflow-hidden flex flex-col"
-            style={{
-              background: "linear-gradient(175deg, #10152a, #090c18)",
-              border: "1px solid rgba(212,175,55,0.3)",
-              boxShadow: "0 24px 70px rgba(0,0,0,0.85), inset 0 1px 0 rgba(212,175,55,0.1)",
-            }}
-          >
-            {/* LED strip top */}
-            <div className="flex justify-between items-center px-2 py-0" style={{ borderBottom: "1px solid rgba(212,175,55,0.15)", background: "rgba(212,175,55,0.025)" }}>
-              {[...Array(11)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  style={{ width: 5, height: 5, borderRadius: "50%" }}
-                  animate={!gameOver
-                    ? { backgroundColor: ["#d4af37","#c41e3a","#d4af37"], boxShadow: ["0 0 5px rgba(212,175,55,0.7)","0 0 5px rgba(196,30,58,0.7)","0 0 5px rgba(212,175,55,0.7)"] }
-                    : { backgroundColor: "#d4af37", boxShadow: "0 0 3px rgba(212,175,55,0.4)" }}
-                  transition={{ duration: 0.6, repeat: !gameOver ? Infinity : 0, delay: i * 0.07 }}
-                />
-              ))}
-            </div>
-
-            {/* Sub-header */}
-            <div className="px-1 pt-0 pb-0 flex items-center justify-between" style={{ minHeight: "12px" }}>
-              <span className="font-heading text-[7px] tracking-[0.35em] uppercase text-amber-300/60">
-                Choisissez une boîte
-              </span>
-              <AnimatePresence mode="wait">
-                {!gameOver ? (
-                  <motion.span
-                    key="remaining"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="font-heading text-[7px] tracking-widest"
-                    style={{ color: remaining <= 3 ? "#c41e3a" : "#d4af37", opacity: 0.7 }}
-                  >
-                    {remaining} boîte{remaining > 1 ? "s" : ""} restante{remaining > 1 ? "s" : ""}
-                  </motion.span>
-                ) : (
-                  <motion.span
-                    key="gameover"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="font-heading text-[7px] tracking-widest text-white/40 uppercase"
-                  >
-                    Partie terminée
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Grid of boxes */}
-            <div className="flex-1 min-h-0 px-0.5 pb-0.5 flex flex-col justify-center">
-              <div
-                className="grid gap-0.5"
-                style={{ gridTemplateColumns: "repeat(5, 1fr)" }}
-              >
-                {prizes.map((prize, i) => (
-                  // @ts-ignore
-                  <Box
-                    key={i}
-                    index={i}
-                    prize={prize}
-                    state={states[i]}
-                    onClick={() => handleBox(i)}
-                    disabled={gameOver && states[i] === "closed"}
-                    isAdulte={isAdulte}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Result banner */}
-            <div className="px-1 flex items-center justify-center" style={{ minHeight: 16 }}>
-              <AnimatePresence mode="wait">
-                {allEmpty && (
-                  <motion.p
-                    key="noluck"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="font-heading text-[7px] tracking-[0.3em] text-white/40 uppercase"
-                  >
-                    Toutes les boîtes étaient vides… Réessayez !
-                  </motion.p>
-                )}
-                {gameOver && wonPrize && !showWin && (
-                  <motion.div
-                    key="win-small"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-center py-0.5 px-3 rounded"
-                    style={{
-                      background: `${PRIZE_META[wonPrize].color}12`,
-                      border: `1px solid ${PRIZE_META[wonPrize].color}40`,
-                    }}
-                  >
-                    <p className="font-heading text-[7px] tracking-[0.35em] uppercase" style={{ color: PRIZE_META[wonPrize].color }}>
-                      {wonPrize === 'bonbons' && isAdulte ? "🥃" : wonPrize === 'pochette' && isAdulte ? "🥃" : wonPrize === 'barbapapa' && isAdulte ? "🍭" : PRIZE_META[wonPrize].emoji}{" "}
-                      {wonPrize === 'bonbons' && isAdulte ? "1 Shooter" : wonPrize === 'pochette' && isAdulte ? "Tournée de Shooters" : wonPrize === 'barbapapa' && isAdulte ? "Barbe à Papa" : PRIZE_META[wonPrize].label}
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Reset button */}
-            <div className="px-1 pb-0">
-              <motion.button
-                onClick={handleReset}
-                whileTap={{ scale: 0.97 }}
-                className="btn-gold w-full py-1 rounded text-[9px] tracking-[0.15em] font-heading flex items-center justify-center gap-0.5"
-              >
-                <RefreshCw size={9} />
-                NOUVELLE PARTIE
-              </motion.button>
-            </div>
-
-            {/* Paytable */}
-            <div
-              className="grid grid-cols-3 gap-0.5 px-1 py-0"
-              style={{ borderTop: "1px solid rgba(212,175,55,0.15)", background: "rgba(0,0,0,0.2)" }}
-            >
-{(Object.entries(
-                isAdulte
-                  ? { ...PRIZE_META, bonbons: { ...PRIZE_META.bonbons, emoji: "🥃", label: "1 Shooter", short: "Shooter" }, barbapapa: { ...PRIZE_META.barbapapa, emoji: "🍭", label: "Barbe à Papa", short: "Barbe à Papa" }, pochette: { ...PRIZE_META.pochette, emoji: "🥃", label: "Tournée de Shooters", short: "Shooter" } }
-                  : PRIZE_META
-              ) as [keyof typeof PRIZE_META, typeof PRIZE_META[keyof typeof PRIZE_META]][]).map(([id, p]) => {
-                const count = PRIZE_POOL.filter(x => x === id).length;
-                return (
-                  <div key={id} className="text-center">
-                    <p className="font-heading text-[6px] tracking-[0.2em] uppercase mb-0" style={{ color: p.color }}>
-                      ×{count} boîte{count > 1 ? "s" : ""}
-                    </p>
-                    <p className="text-sm leading-none mb-0">{p.emoji}</p>
-                    <p className="font-heading text-[5px] tracking-wide text-white/40 uppercase leading-tight">{p.label}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* LED strip bottom */}
-            <div className="flex justify-between items-center px-2 py-0" style={{ borderTop: "1px solid rgba(212,175,55,0.15)", background: "rgba(212,175,55,0.025)" }}>
-              {[...Array(11)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  style={{ width: 5, height: 5, borderRadius: "50%" }}
-                  animate={!gameOver
-                    ? { backgroundColor: ["#c41e3a","#d4af37","#c41e3a"], boxShadow: ["0 0 5px rgba(196,30,58,0.7)","0 0 5px rgba(212,175,55,0.7)","0 0 5px rgba(196,30,58,0.7)"] }
-                    : { backgroundColor: "#d4af37", boxShadow: "0 0 3px rgba(212,175,55,0.35)" }}
-                  transition={{ duration: 0.6, repeat: !gameOver ? Infinity : 0, delay: (10 - i) * 0.07 }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <p className="hidden lg:block text-center font-heading text-[7px] tracking-[0.4em] text-white/25 uppercase mt-0">
-            5 boîtes gagnantes sur 15 · Bowling de Gramont
-          </p>
-        </motion.div>
+          {allEmpty && <p className="carlos-result" role="status">Toutes les boîtes étaient vides… Réessayez !</p>}
+          {gameOver && wonPrize && !showWin && <p className="carlos-result" role="status">{wonPrize === 'pochette' && isAdulte ? 'Tournée de Shooters' : wonPrize === 'bonbons' && isAdulte ? '1 Shooter' : wonPrize === 'barbapapa' && isAdulte ? 'Barbe à Papa' : PRIZE_META[wonPrize].label}</p>}
+          <div className="carlos-board-footer"><span>5 boîtes gagnantes sur 15</span><button type="button" onClick={handleReset}><RefreshCw size={16} /> Nouvelle partie</button></div>
+        </section>
+        <section className="carlos-prizes" aria-label="Les lots à gagner">
+          {(Object.entries(isAdulte ? { ...PRIZE_META, bonbons: { ...PRIZE_META.bonbons, emoji: '🥃', label: '1 Shooter' }, barbapapa: { ...PRIZE_META.barbapapa, emoji: '🍭', label: 'Barbe à Papa' }, pochette: { ...PRIZE_META.pochette, emoji: '🥃', label: 'Tournée de Shooters' } } : PRIZE_META)).map(([id, p]) => <div className="carlos-prize" key={id}><span aria-hidden="true">{p.emoji}</span><div><p>{p.label}</p><small>×{PRIZE_POOL.filter(x => x === id).length} boîte{PRIZE_POOL.filter(x => x === id).length > 1 ? 's' : ''}</small></div></div>)}
+        </section>
+        <p className="carlos-location">Bowling de Gramont</p>
       </main>
     </div>
   );
 }
+
+const CARLOS_STYLES = `
+.carlos-page{min-height:100dvh;color:#f4f2fa;background:radial-gradient(ellipse at 12% 0%,#252043 0%,transparent 48%),radial-gradient(ellipse at 95% 70%,#102b36 0%,transparent 45%),#090c16;font-family:Inter,system-ui,sans-serif;color-scheme:dark}
+.carlos-page *{box-sizing:border-box}
+.carlos-nav{max-width:1320px;margin:auto;min-height:76px;padding:18px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ffffff12;gap:20px}
+.carlos-nav a{display:flex;align-items:center;gap:10px;color:#c4c4d4;font-size:14px;text-decoration:none;transition:color .2s}
+.carlos-nav a:hover{color:#f2d49a}.carlos-brand{display:flex;align-items:center;gap:10px;color:#f2d49a;font-weight:700;letter-spacing:.12em}
+.carlos-main{max-width:1160px;margin:auto;padding:34px 32px 20px}.carlos-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:28px}.carlos-eyebrow{color:#bc9b64;font-size:12px;letter-spacing:.24em;margin:0 0 8px}.carlos-header h1{font-size:clamp(26px,3.5vw,42px);font-weight:650;letter-spacing:-.045em;line-height:1.15;margin:0}.carlos-header h1 span{color:#efd29c}.carlos-stats{display:flex;gap:24px;color:#9d9eb3;font-size:14px}.carlos-stats span{display:flex;flex-direction:column;gap:4px}.carlos-stats strong{font-size:24px;font-weight:500;color:#eeeaf7;font-variant-numeric:tabular-nums}
+.carlos-cabinet{border:1px solid #ffffff16;border-radius:24px;background:linear-gradient(145deg,#ffffff05,#ffffff01),#0f1320;box-shadow:0 30px 80px #0005;overflow:hidden}.carlos-board-header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:22px 28px;border-bottom:1px solid #ffffff0d}.carlos-board-header h2{font-size:16px;font-weight:500;margin:0}.carlos-board-header>span{font-size:14px;color:#a8abbe}.carlos-board-header strong{color:#efd29c;font-variant-numeric:tabular-nums}
+.carlos-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px 22px;padding:18px 34px 8px;background:radial-gradient(ellipse at 50% 40%,#26314640,transparent 70%)}
+.carlos-box{--size:clamp(52px,8.7vw,100px);position:relative;display:block;width:100%;height:calc(var(--size)*1.57);border:0;background:transparent;padding:0;perspective:800px;cursor:pointer;isolation:isolate;touch-action:manipulation;border-radius:16px;transition:opacity .3s}.carlos-box:disabled{cursor:default}.carlos-box:focus-visible,.carlos-page a:focus-visible,.carlos-board-footer button:focus-visible{outline:2px solid #f5d697;outline-offset:5px}.carlos-box-shadow{position:absolute;width:76%;height:22%;bottom:12%;left:12%;border-radius:50%;background:radial-gradient(ellipse,#0009,transparent 70%)}
+.carlos-cube{position:absolute;width:var(--size);height:var(--size);left:calc(50% - var(--size)/2);top:16%;transform-style:preserve-3d;transform:rotateX(-24deg) rotateY(-28deg);transition:transform .4s cubic-bezier(.2,.8,.2,1)}
+@media(hover:hover){.carlos-box:not(:disabled):hover .carlos-cube{transform:rotateX(-29deg) rotateY(-20deg)}}
+.carlos-face{position:absolute;inset:0;border:1px solid #ffffff25;backface-visibility:hidden;background:linear-gradient(135deg,var(--light),var(--box) 45%,var(--dark));border-radius:3px}.carlos-front{transform:translateZ(calc(var(--size)/2));overflow:hidden;box-shadow:inset 0 1px 1px #fff5,inset 0 -12px 25px #0003}.carlos-back{transform:rotateY(180deg) translateZ(calc(var(--size)/2));background:var(--dark);backface-visibility:visible}.carlos-left{transform:rotateY(-90deg) translateZ(calc(var(--size)/2));background:linear-gradient(120deg,var(--box),var(--dark))}.carlos-right{transform:rotateY(90deg) translateZ(calc(var(--size)/2));background:linear-gradient(135deg,var(--light),var(--box))}.carlos-floor{transform:rotateX(90deg) translateZ(calc(var(--size)/-2));background:var(--dark);backface-visibility:visible}
+.carlos-ribbon{position:absolute;top:0;bottom:0;left:40%;width:20%;background:linear-gradient(90deg,#b78840,#f9e4ad 40%,#d3a857 78%,#ae7f35);box-shadow:1px 0 0 #ffebbe70,-1px 0 0 #0002}.carlos-seal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;width:36%;aspect-ratio:1;border-radius:50%;background:linear-gradient(135deg,#fae9be,#b7863f);border:2px solid #ead29a;color:#3a2913;font-size:calc(var(--size)*.17);font-weight:800;box-shadow:0 3px 8px #0005,inset 0 0 0 2px #7f581d44}
+.carlos-lid{position:absolute;inset:0;transform-origin:50% 0;transform-style:preserve-3d}.carlos-lid-top{position:absolute;inset:-3%;transform:rotateX(90deg) translateZ(calc(var(--size)/2));background:linear-gradient(140deg,var(--light),var(--box));border:1px solid #ffffff60;border-radius:4px;box-shadow:inset 0 0 16px #fff2;backface-visibility:visible}.carlos-ribbon-cross{position:absolute;left:0;right:0;top:40%;height:20%;background:linear-gradient(#be934b,#fae5af 45%,#c99d50);box-shadow:0 1px 1px #0003}.carlos-lid-edge{position:absolute;top:-3%;left:-3%;width:106%;height:13%;transform:translateZ(calc(var(--size)*.53));background:linear-gradient(var(--light),var(--box));border:1px solid #ffffff38;border-radius:3px;box-shadow:0 3px 4px #0004}.carlos-lid-edge:after{content:'';position:absolute;inset:0 40%;background:linear-gradient(90deg,#bd934a,#f7dfa3,#c2974c)}
+.carlos-box-caption{position:absolute;bottom:0;left:0;right:0;color:#8c91a7;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.14em}.carlos-reveal{position:absolute;z-index:2;inset:26% 4% 14%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#101522ee;border:1px solid #ffffff26;box-shadow:0 8px 24px #0006;border-radius:14px;color:#c1c5d4;font-size:14px;font-weight:600}.carlos-reveal-win{background:radial-gradient(ellipse at top,#514026,#151723 80%);border-color:#edcb8066;color:#f9dfab;box-shadow:0 0 22px #e9bc4620}.carlos-prize-icon{font-size:clamp(26px,3vw,38px);line-height:1.2}
+.carlos-board-footer{padding:22px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px;color:#a8abbe;font-size:14px;border-top:1px solid #ffffff0d;margin-top:18px}.carlos-board-footer button{display:flex;align-items:center;justify-content:center;gap:9px;padding:12px 20px;border-radius:10px;border:1px solid #ffe7b880;background:linear-gradient(120deg,#f3dba8,#d7b16b);color:#302310;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 3px 14px #0002;transition:filter .2s,transform .2s}.carlos-board-footer button:hover{filter:brightness(1.08);transform:translateY(-1px)}.carlos-board-footer button:active{transform:scale(.98)}.carlos-result{text-align:center;padding:12px;color:#efd29c;font-size:14px}.carlos-prizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:20px}.carlos-prize{display:flex;align-items:center;gap:14px;padding:16px 20px;border:1px solid #ffffff0e;border-radius:14px;background:#ffffff03}.carlos-prize>span{font-size:28px}.carlos-prize p{margin:0 0 4px;font-size:14px;color:#dedee9}.carlos-prize small{font-size:12px;color:#999fb5}.carlos-location{text-align:center;font-size:12px;color:#747d98;letter-spacing:.14em;margin:20px 0 0}
+/* Size the playing area from the available viewport, then fit each 3D box
+   to its grid cell. No content is hidden to make the page fit. */
+.carlos-page{height:100dvh;min-height:0;display:flex;flex-direction:column}
+.carlos-nav{flex:0 0 auto;width:100%;min-height:48px;margin:0 auto;padding:10px 28px}
+.carlos-main{flex:1;min-height:0;width:100%;margin:0 auto;padding:14px 28px 10px;display:flex;flex-direction:column;gap:12px}
+.carlos-header{flex:0 0 auto;margin:0;gap:16px}.carlos-header h1{font-size:clamp(24px,3vw,36px)}.carlos-eyebrow{margin-bottom:4px}.carlos-stats strong{font-size:20px}
+.carlos-cabinet{flex:1;min-height:0;display:flex;flex-direction:column}
+.carlos-board-header{flex:0 0 auto;padding:12px 22px}
+.carlos-grid{flex:1;min-height:0;grid-template-rows:repeat(3,minmax(0,1fr));gap:4px 18px;padding:8px 26px}
+.carlos-box{container-type:size;height:100%;min-height:0;min-width:0}
+.carlos-cube{--size:min(62cqw,60cqh,110px);top:50%;margin-top:calc(var(--size)*-.5)}
+.carlos-seal{font-size:max(11px,calc(var(--size)*.17))}
+.carlos-reveal{inset:16% 3% 8%;gap:2px;font-size:clamp(11px,12cqh,14px)}
+.carlos-prize-icon{font-size:clamp(18px,30cqh,36px)}
+.carlos-board-footer{flex:0 0 auto;padding:10px 22px;margin:0;gap:12px}
+.carlos-board-footer button{min-height:40px;padding:8px 16px}
+.carlos-result{flex:0 0 auto;margin:0;padding:4px 12px}
+.carlos-prizes{flex:0 0 auto;margin:0;gap:12px}.carlos-prize{padding:10px 16px;gap:10px}.carlos-prize p{line-height:1.25}.carlos-prize>span{font-size:24px}
+.carlos-location{flex:0 0 auto;margin:0;line-height:1.2}
+@media(max-width:640px){
+ .carlos-nav{min-height:42px;padding:8px 16px}.carlos-brand{font-size:14px}.carlos-nav a{font-size:13px}
+ .carlos-main{padding:10px 12px 8px;gap:8px}.carlos-header{gap:6px;align-items:flex-start;flex-direction:column}.carlos-header h1{font-size:24px}.carlos-eyebrow{font-size:10px;line-height:1.2;margin-bottom:3px}
+ .carlos-stats{gap:18px;font-size:12px}.carlos-stats span{flex-direction:row;align-items:baseline;gap:6px}.carlos-stats strong{font-size:14px}
+ .carlos-cabinet{border-radius:16px}.carlos-board-header{padding:9px 12px;gap:8px}.carlos-board-header h2{font-size:14px}.carlos-board-header>span{font-size:12px}
+ .carlos-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(5,minmax(0,1fr));gap:2px 8px;padding:4px 14px}
+ .carlos-board-footer{padding:8px 12px;gap:8px;flex-wrap:nowrap}.carlos-board-footer>span{font-size:11px;max-width:100px;line-height:1.3}.carlos-board-footer button{font-size:12px;padding:8px 10px;gap:6px;min-height:38px;white-space:nowrap}
+ .carlos-prizes{gap:6px}.carlos-prize{padding:7px 5px;gap:4px;flex-direction:column;text-align:center}.carlos-prize>span{font-size:20px;line-height:1}.carlos-prize p{font-size:11px;margin-bottom:2px}.carlos-prize small{font-size:10px;line-height:1.2;display:block}.carlos-location{font-size:10px}
+}
+@media(max-height:500px) and (min-width:641px){
+ .carlos-nav{min-height:32px;padding:4px 24px}.carlos-main{padding:6px 24px;gap:5px}.carlos-header h1{font-size:22px}.carlos-eyebrow{font-size:10px;margin:0}.carlos-stats span{flex-direction:row;align-items:center;gap:6px}.carlos-stats strong{font-size:16px}.carlos-board-header{padding:5px 16px}.carlos-board-header h2{font-size:14px}.carlos-grid{padding:2px 20px;gap:0 12px}.carlos-board-footer{padding:4px 16px}.carlos-board-footer button{min-height:30px;padding:4px 12px}.carlos-prize{padding:4px 12px}.carlos-prize p{font-size:12px;margin:0}.carlos-prize small{font-size:10px}.carlos-location{font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){.carlos-page *,.carlos-page *:before,.carlos-page *:after{transition:none!important;animation:none!important}.carlos-box:hover .carlos-cube{transform:rotateX(-24deg) rotateY(-28deg)}}
+`;
